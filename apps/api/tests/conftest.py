@@ -1,3 +1,5 @@
+from contextlib import contextmanager
+
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
@@ -40,6 +42,21 @@ def preserve_app_dependency_overrides():
         app.dependency_overrides.update(original)
 
 
+@pytest.fixture
+def dependency_override_scope():
+    @contextmanager
+    def apply_overrides(overrides):
+        original = dict(app.dependency_overrides)
+        app.dependency_overrides.update(overrides)
+        try:
+            yield
+        finally:
+            app.dependency_overrides.clear()
+            app.dependency_overrides.update(original)
+
+    return apply_overrides
+
+
 @pytest.fixture(autouse=True)
 def block_network_in_deterministic_tests(request, monkeypatch):
     is_live = request.node.get_closest_marker("live") is not None
@@ -63,7 +80,7 @@ async def db_session(test_session_factory):
 
 
 @pytest_asyncio.fixture
-async def client(test_session_factory):
+async def client(test_session_factory, dependency_override_scope):
     async def override_get_db():
         async with test_session_factory() as session:
             try:
@@ -73,7 +90,28 @@ async def client(test_session_factory):
                 await session.rollback()
                 raise
 
-    app.dependency_overrides[get_db] = override_get_db
     transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as api_client:
-        yield api_client
+    with dependency_override_scope({get_db: override_get_db}):
+        async with AsyncClient(transport=transport, base_url="http://test") as api_client:
+            yield api_client
+
+
+@pytest.fixture
+def deterministic_ai_provider(monkeypatch):
+    from app.services.ai.gemini_provider import GeminiProvider
+    from app.services.ai.openai_provider import OpenAIProvider
+
+    async def generate(
+        self,
+        prompt,
+        system_prompt=None,
+        model=None,
+        temperature=0.7,
+        max_tokens=4096,
+        response_format=None,
+    ):
+        return GeminiProvider()._mock_academic_fallback(prompt, response_format)
+
+    monkeypatch.setattr(GeminiProvider, "generate", generate)
+    monkeypatch.setattr(OpenAIProvider, "generate", generate)
+    return generate
