@@ -23,12 +23,12 @@
 - Modify: `apps/api/tests/conftest.py`
 - Create: `apps/api/tests/test_shared_test_fixtures.py`
 
-- [ ] Write a failing test that imports `create_isolated_database`, opens two databases in sequence, writes a user into the first, and proves the second contains no users.
-- [ ] Add an async context manager that creates an in-memory SQLite engine, creates `Base.metadata`, yields its `async_sessionmaker`, then drops/disposes it in `finally`.
-- [ ] Add root `test_session_factory`, `db_session`, and `client` fixtures. The client uses `ASGITransport(app=app)` and a database dependency that yields the same function-scoped session.
-- [ ] Patch `app.core.database.AsyncSessionLocal` to the function-scoped factory so runtime services that intentionally open their own session stay inside the test database.
-- [ ] Add an autouse fixture that snapshots `app.dependency_overrides` and restores that exact mapping after each test.
-- [ ] Verify fixture tests, auth/project integration tests, and the full deterministic suite.
+- [x] Write a failing test that imports `create_isolated_database`, opens two databases in sequence, writes a user into the first, and proves the second contains no users.
+- [x] Add an async context manager that creates an in-memory SQLite engine, creates `Base.metadata`, yields its `async_sessionmaker`, then drops/disposes it in `finally`.
+- [x] Add root `test_session_factory`, `db_session`, and `client` fixtures. The client uses `ASGITransport(app=app)` and a database dependency that yields the same function-scoped session.
+- [x] Patch `app.core.database.AsyncSessionLocal` and `async_session_maker` to the function-scoped factory so runtime services that intentionally open their own session stay inside the test database.
+- [x] Add an autouse fixture that snapshots `app.dependency_overrides` and restores that exact mapping after each test.
+- [x] Verify fixture tests, auth/project integration tests, and the full deterministic suite.
 
 ### Task 2: Migrate the standard duplicated fixtures
 
@@ -56,11 +56,13 @@
 - `test_phase_u8_fact_inspector.py`
 - `test_source_library_and_citations.py`
 
-- [ ] Remove module-level engine/sessionmaker declarations and the duplicated `db_session`/`client` fixtures.
-- [ ] Remove imports that existed only for those fixtures; retain `AsyncClient`/`AsyncSession` when test annotations or bodies use them.
-- [ ] Migrate three representative modules first and run them before converting the rest.
-- [ ] Run every migrated module together and confirm live functions remain skipped by default.
-- [ ] Stage only the fixture-removal hunks in files that already contained unrelated edits.
+Additional standard fixtures found during migration were removed from admin, billing, quota, storage, observability, production-readiness, document-intelligence, and agentic-workflow modules.
+
+- [x] Remove module-level engine/sessionmaker declarations and the duplicated `db_session`/`client` fixtures.
+- [x] Remove imports that existed only for those fixtures; retain `AsyncClient`/`AsyncSession` when test annotations or bodies use them.
+- [x] Migrate three representative modules first and run them before converting the rest.
+- [x] Run every migrated module together and confirm live functions remain skipped by default.
+- [x] Stage only the fixture-removal hunks in files that already contained unrelated edits.
 
 ### Task 3: Isolate global overrides and mutable singleton state
 
@@ -70,10 +72,10 @@
 - Modify: tests that currently call `app.dependency_overrides.clear()` outside the standard fixture pattern.
 - Create or modify focused policy tests in `apps/api/tests/test_shared_test_fixtures.py`.
 
-- [ ] Prove a temporary dependency override is restored after its scope rather than clearing unrelated entries.
-- [ ] Replace remaining unconditional override clears with snapshot restoration or the shared client fixture.
-- [ ] Reset `metrics_collector`, `product_analytics`, usage context, and other mutable process state only when a focused test demonstrates leakage.
-- [ ] Keep state reset rules visible in named fixtures; do not introspect and mutate arbitrary singleton attributes.
+- [x] Prove a temporary dependency override is restored after its scope rather than clearing unrelated entries.
+- [x] Replace remaining unconditional override clears with snapshot restoration or the shared client fixture.
+- [x] Reset mutable process state only when a focused test demonstrates leakage; reverse-order execution exposed `task_queue`, whose tests now use independent queue instances.
+- [x] Keep state reset rules visible in named fixtures; do not introspect and mutate arbitrary singleton attributes.
 
 ### Task 4: Convert local-behavior AI tests to deterministic provider fixtures
 
@@ -82,11 +84,11 @@
 - Modify: `apps/api/tests/conftest.py`
 - Modify: the Phase 0A live-marked AI test modules whose assertions concern local orchestration rather than provider availability.
 
-- [ ] Add an explicit `deterministic_ai_provider` fixture that patches Gemini/OpenAI `generate` methods with fixed complete response payloads.
-- [ ] Remove `live` only from tests that declare this fixture and make no public-provider assertion.
-- [ ] Keep Crossref, arXiv, DOI/URL verification, configured payment-provider, and real PostgreSQL checks live.
-- [ ] Run converted tests with the Python network guard active and verify their assertions exercise application behavior.
-- [ ] Recount live collection and document why each remaining live test needs an external dependency.
+- [x] Add an explicit `deterministic_ai_provider` fixture that patches Gemini/OpenAI `generate` methods with complete offline response payloads.
+- [x] Remove `live` only from tests that declare this fixture and make no public-provider assertion.
+- [x] Keep Crossref, arXiv, DOI/URL verification, public research flows, and real PostgreSQL checks live; test the PayOS signing/response contract with a fake request boundary.
+- [x] Run converted tests with the Python network guard active and verify their assertions exercise application behavior.
+- [x] Recount live collection and document why each remaining live test needs an external dependency.
 
 ### Task 5: Order and completion verification
 
@@ -95,9 +97,8 @@
 - Modify: `apps/api/TESTING.md`
 - Modify: this plan after evidence exists.
 
-- [ ] Run the deterministic backend suite in normal collection order.
-- [ ] Collect deterministic node IDs and run the same set in reverse order.
-- [ ] Run representative database/client modules twice in one command to expose retained module state.
-- [ ] Run frontend tests, typecheck, lint, and build.
-- [ ] Record exact passed/skipped/warning counts and remaining specialized local fixtures in `TESTING.md`.
-
+- [x] Run the deterministic backend suite in normal collection order.
+- [x] Collect deterministic node IDs and run the same set in reverse order.
+- [x] Run representative database/client modules twice in one command to expose retained module state.
+- [x] Run frontend tests, typecheck, lint, and build.
+- [x] Record exact passed/skipped/warning counts and remaining specialized local fixtures in `TESTING.md`.
