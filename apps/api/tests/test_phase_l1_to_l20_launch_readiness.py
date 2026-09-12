@@ -2,11 +2,7 @@ import io
 import json
 import zipfile
 import pytest
-import pytest_asyncio
-from httpx import AsyncClient, ASGITransport
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
-from app.main import app
-from app.core.database import Base, get_db
+from httpx import AsyncClient
 
 from app.services.security.prompt_injection_guard import prompt_injection_guard
 from app.services.agent.impact_policy import agent_impact_enforcer, ImpactLevel
@@ -19,34 +15,6 @@ from app.services.demo.demo_project_service import demo_project_service
 from app.services.benchmarks.cost_benchmark_runner import cost_benchmark_runner
 from app.services.codebase.codebase_intelligence_engine import codebase_intelligence_engine
 from app.services.research.deep_research_v2 import deep_research_v2
-
-TEST_DB_URL = "sqlite+aiosqlite:///:memory:"
-test_engine = create_async_engine(TEST_DB_URL, connect_args={"check_same_thread": False})
-TestAsyncSession = async_sessionmaker(bind=test_engine, class_=AsyncSession, expire_on_commit=False)
-
-
-@pytest_asyncio.fixture(scope="function")
-async def client():
-    async with test_engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-
-    async def override_get_db():
-        async with TestAsyncSession() as session:
-            try:
-                yield session
-                await session.commit()
-            except Exception:
-                await session.rollback()
-                raise
-
-    app.dependency_overrides[get_db] = override_get_db
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as c:
-        yield c
-
-    app.dependency_overrides.clear()
-    async with test_engine.begin() as conn:
-        await conn.run_sync(Base.metadata.drop_all)
 
 
 # ----------------------------------------------------
