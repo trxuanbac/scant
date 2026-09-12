@@ -8,6 +8,7 @@ from app.services.citations.citation_service import citation_service
 from app.services.citations.citation_formatter import CitationFormatter
 
 
+@pytest.mark.live
 @pytest.mark.asyncio
 async def test_multi_provider_search_anti_hallucination():
     """Verify search returns real data and never hallucinated results for gibberish."""
@@ -16,6 +17,7 @@ async def test_multi_provider_search_anti_hallucination():
     assert len(results) == 0, "System must not hallucinate fake papers for non-existent queries!"
 
 
+@pytest.mark.live
 @pytest.mark.asyncio
 async def test_source_verification_scoring():
     """Verify 100-point formula and domain trust categorization."""
@@ -167,6 +169,7 @@ async def client(db_session: AsyncSession):
     app.dependency_overrides.clear()
 
 
+@pytest.mark.live
 @pytest.mark.asyncio
 async def test_sources_api_e2e(client: AsyncClient):
     """End-to-end verification of Source Library, Evidence, and Citation APIs."""

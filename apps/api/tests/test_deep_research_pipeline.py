@@ -10,6 +10,7 @@ from app.services.citations.citation_formatter import citation_formatter
 from app.services.research.deep_research_pipeline import deep_research_pipeline, DeepResearchResult
 
 
+@pytest.mark.live
 @pytest.mark.asyncio
 async def test_crossref_live_search():
     """Verify live Crossref queries return real papers with real DOIs and publishers."""
@@ -23,6 +24,7 @@ async def test_crossref_live_search():
         assert s.source_type == "academic"
 
 
+@pytest.mark.live
 @pytest.mark.asyncio
 async def test_arxiv_live_search():
     """Verify live arXiv queries return real papers with arXiv IDs and real authors."""
@@ -170,6 +172,7 @@ def test_citation_formatter_formats():
     assert "ER  -" in ris_text
 
 
+@pytest.mark.live
 @pytest.mark.asyncio
 async def test_end_to_end_deep_research_pipeline_vietnam_ev_2026():
     """Execute end-to-end pipeline with the user's test topic: 'Thị trường xe điện Việt Nam năm 2026'."""

@@ -35,6 +35,7 @@ async def client(db_session: AsyncSession):
     app.dependency_overrides.clear()
 
 
+@pytest.mark.live
 @pytest.mark.asyncio
 async def test_search_and_ranking():
     provider = search_engine.get_search_provider()
@@ -90,6 +91,7 @@ def test_anti_hallucination_claim_validation():
     assert "[99]" in halluc_res["unverified_citations"]
 
 
+@pytest.mark.live
 @pytest.mark.asyncio
 async def test_research_api_flow(client: AsyncClient):
     # 1. Register & Project
