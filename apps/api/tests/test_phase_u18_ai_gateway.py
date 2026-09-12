@@ -12,20 +12,8 @@ from app.schemas.ai import AnalyzeIntentRequest
 
 
 @pytest_asyncio.fixture(autouse=True)
-async def isolated_gateway_database(monkeypatch,request):
-    from sqlalchemy.ext.asyncio import create_async_engine,async_sessionmaker
-    from app.core.database import Base
-    from app.models.admin_configuration import AdminConfiguration
-    engine=create_async_engine('sqlite+aiosqlite:///:memory:')
-    async with engine.begin() as conn:await conn.run_sync(Base.metadata.create_all)
-    monkeypatch.setattr('app.core.database.AsyncSessionLocal',async_sessionmaker(engine,expire_on_commit=False))
-    if request.node.name in {'test_ai_gateway_execute_success','test_ai_gateway_passes_max_tokens_to_provider','test_ai_gateway_failover_mechanism','test_outline_service_via_gateway'}:
-        async def deterministic_provider(self,prompt,response_format=None,**kwargs):
-            return GeminiProvider()._mock_academic_fallback(prompt,response_format)
-        monkeypatch.setattr('app.services.ai.gemini_provider.GeminiProvider.generate',deterministic_provider)
-        monkeypatch.setattr('app.services.ai.openai_provider.OpenAIProvider.generate',deterministic_provider)
+async def isolated_gateway_database(test_session_factory):
     yield
-    await engine.dispose()
 
 
 def test_model_router_resolutions():
@@ -48,7 +36,7 @@ def test_model_router_resolutions():
 
 
 @pytest.mark.asyncio
-async def test_ai_gateway_execute_success():
+async def test_ai_gateway_execute_success(deterministic_ai_provider):
     metrics_collector.reset()
     req = AIRequest(
         task_type=AITaskType.SECTION_WRITING,
@@ -88,7 +76,7 @@ async def test_ai_gateway_passes_max_tokens_to_provider():
 
 
 @pytest.mark.asyncio
-async def test_ai_gateway_failover_mechanism():
+async def test_ai_gateway_failover_mechanism(deterministic_ai_provider):
     req = AIRequest(
         task_type=AITaskType.FACT_CHECK,
         prompt="Kiểm tra thông tin doanh thu 500 tỷ",
@@ -105,7 +93,7 @@ async def test_ai_gateway_failover_mechanism():
 
 
 @pytest.mark.asyncio
-async def test_outline_service_via_gateway():
+async def test_outline_service_via_gateway(deterministic_ai_provider):
     res = await outline_service.analyze_intent(
         AnalyzeIntentRequest(user_prompt="Báo cáo kiểm toán bảo mật hệ thống ngân hàng số")
     )
