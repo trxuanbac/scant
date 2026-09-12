@@ -2,9 +2,8 @@ import pytest
 from httpx import AsyncClient
 
 
-@pytest.mark.live
 @pytest.mark.asyncio
-async def test_ai_analyze_intent_flow(client: AsyncClient):
+async def test_ai_analyze_intent_flow(client: AsyncClient, deterministic_ai_provider):
     # 1. Register
     reg_res = await client.post("/api/v1/auth/register", json={
         "email": "strategist@corp.com",

@@ -2,9 +2,8 @@ import pytest
 from app.services.visuals.diagram_agent import visual_diagram_agent, DiagramType
 
 
-@pytest.mark.live
 @pytest.mark.asyncio
-async def test_diagram_generation_flowchart():
+async def test_diagram_generation_flowchart(deterministic_ai_provider):
     spec = await visual_diagram_agent.plan_and_generate_diagram(
         context_text="Hệ thống gồm API Gateway, Microservices, Worker Queue và PostgreSQL Database.",
         diagram_type=DiagramType.FLOWCHART,
@@ -17,9 +16,8 @@ async def test_diagram_generation_flowchart():
     assert spec.nodes_count >= 3
 
 
-@pytest.mark.live
 @pytest.mark.asyncio
-async def test_diagram_generation_erd():
+async def test_diagram_generation_erd(deterministic_ai_provider):
     spec = await visual_diagram_agent.plan_and_generate_diagram(
         context_text="Mô hình dữ liệu gồm Users, Projects, Reports, Sections và Citations.",
         diagram_type=DiagramType.ERD,
@@ -30,9 +28,8 @@ async def test_diagram_generation_erd():
     assert visual_diagram_agent.validate_mermaid_syntax(spec.mermaid_code) is True
 
 
-@pytest.mark.live
 @pytest.mark.asyncio
-async def test_diagram_generation_sequence():
+async def test_diagram_generation_sequence(deterministic_ai_provider):
     spec = await visual_diagram_agent.plan_and_generate_diagram(
         context_text="Người dùng gửi yêu cầu xuất file, API gửi task vào Queue, Worker xử lý và trả kết quả.",
         diagram_type=DiagramType.SEQUENCE,

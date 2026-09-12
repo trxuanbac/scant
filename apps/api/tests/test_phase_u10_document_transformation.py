@@ -3,9 +3,8 @@ from httpx import AsyncClient
 from app.services.editor.document_transformer import document_transformer
 
 
-@pytest.mark.live
 @pytest.mark.asyncio
-async def test_document_transformation_unit():
+async def test_document_transformation_unit(deterministic_ai_provider):
     full_text = (
         "Thị trường xe điện tại Việt Nam tăng trưởng 45% trong năm 2026. "
         "Chiến lược của chúng tôi tập trung vào mở rộng trạm sạc nhanh tại các đô thị loại 2 và chính sách giá ưu đãi."
@@ -20,9 +19,8 @@ async def test_document_transformation_unit():
     assert len(res["content"]) > 0
 
 
-@pytest.mark.live
 @pytest.mark.asyncio
-async def test_transform_document_api(client: AsyncClient):
+async def test_transform_document_api(client: AsyncClient, deterministic_ai_provider):
     reg_res = await client.post("/api/v1/auth/register", json={
         "email": "presenter@corp.com",
         "password": "Password123!",

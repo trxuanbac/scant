@@ -23,9 +23,28 @@ async def test_stylometry_and_humanize_engine():
     assert len(res["recommendations"]) > 0
 
 
-@pytest.mark.live
 @pytest.mark.asyncio
-async def test_vietqr_billing_generation():
+async def test_vietqr_billing_generation(monkeypatch):
+    monkeypatch.setenv("PAYOS_CLIENT_ID", "client-test")
+    monkeypatch.setenv("PAYOS_API_KEY", "api-test")
+    monkeypatch.setenv("PAYOS_CHECKSUM_KEY", "checksum-test")
+    monkeypatch.setenv("PAYOS_PRICE_PRO_VND", "99000")
+
+    async def fake_request(method, path="", payload=None):
+        assert method == "POST"
+        assert path == ""
+        assert payload["amount"] == 99000
+        assert payload["description"] == "PLAN PRO"
+        assert payload["signature"]
+        return {
+            "amount": payload["amount"],
+            "currency": "VND",
+            "orderCode": payload["orderCode"],
+            "paymentLinkId": "payment-link-test",
+            "checkoutUrl": "https://pay.payos.vn/web/test",
+        }
+
+    monkeypatch.setattr(billing_provider, "_request", fake_request)
     checkout = await billing_provider.create_checkout_session(
         user_id="usr_test_12345",
         user_email="test@example.com",
@@ -35,9 +54,10 @@ async def test_vietqr_billing_generation():
     )
     assert checkout["target_plan"] == "pro"
     assert checkout["amount_vnd"] == 99000
-    assert "vietqr.io/image" in checkout["qr_code_url"]
-    assert "MBBank" in checkout["bank_name"]
-    assert "UPGRADE" in checkout["transfer_content"]
+    assert checkout["currency"] == "VND"
+    assert checkout["session_id"] == "payment-link-test"
+    assert checkout["checkout_url"] == "https://pay.payos.vn/web/test"
+    assert checkout["status"] == "pending_payment"
 
 
 @pytest.mark.asyncio
@@ -52,9 +72,8 @@ De tai 2,Phan tich thi truong EV,market_research,Ban Giam doc
     assert rows[1]["type"] == "market_research"
 
 
-@pytest.mark.live
 @pytest.mark.asyncio
-async def test_mermaid_diagram_agent():
+async def test_mermaid_diagram_agent(deterministic_ai_provider):
     spec = await visual_diagram_agent.plan_and_generate_diagram(
         context_text="Hệ thống gồm Client gửi request đến AI Gateway, Gateway chuyển tiếp đến LLM Provider rồi trả kết quả.",
         diagram_type=DiagramType.FLOWCHART,

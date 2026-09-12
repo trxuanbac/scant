@@ -4,9 +4,8 @@ from app.schemas.ai import CopilotMessageRequest
 from app.services.ai.copilot_service import copilot_service
 
 
-@pytest.mark.live
 @pytest.mark.asyncio
-async def test_copilot_chat_flow(client: AsyncClient):
+async def test_copilot_chat_flow(client: AsyncClient, deterministic_ai_provider):
     reg_res = await client.post("/api/v1/auth/register", json={
         "email": "director@corp.com",
         "password": "Password123!",

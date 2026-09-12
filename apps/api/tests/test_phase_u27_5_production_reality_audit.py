@@ -1,22 +1,19 @@
 import asyncio
-import io
 import os
 import time
 import uuid
 import pytest
-import pytest_asyncio
-from httpx import AsyncClient, ASGITransport
+from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy import select, text
-from app.main import app
-from app.core.database import Base, get_db
-from app.models.entities import User, Project, Report, Document, AIUsageEvent, UploadedFile
+from app.core.database import Base
+from app.models.entities import User, Project
 from app.services.worker.checkpoint_engine import checkpoint_engine
-from app.services.worker.queue_manager import task_queue, TaskState
-from app.services.storage.storage_provider import storage_provider, S3StorageProvider
+from app.services.storage.storage_provider import S3StorageProvider
 from app.services.storage.signed_url_service import signed_url_service
 from app.services.storage.deduplication_service import deduplication_service
 from app.services.ai.gateway import ai_gateway
+from app.services.ai.provider_factory import ai_factory
 from app.services.ai.types import AIRequest, AITaskType
 
 # Real PostgreSQL Test URL
@@ -181,70 +178,48 @@ def test_audit_4_storage_signed_urls_and_deduplication():
 
 
 @pytest.mark.asyncio
-async def test_audit_5_multi_user_isolation():
+async def test_audit_5_multi_user_isolation(client: AsyncClient):
     """AUDIT TEST 5: Complete tenant boundary validation between User A and User B."""
-    engine = create_async_engine("sqlite+aiosqlite:///:memory:", connect_args={"check_same_thread": False})
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+    # Register User A
+    res_a = await client.post("/api/v1/auth/register", json={
+        "email": "user_a@enterprise.com",
+        "password": "Password123!",
+        "name": "User A"
+    })
+    token_a = res_a.json()["access_token"]
+    headers_a = {"Authorization": f"Bearer {token_a}"}
 
-    SessionLocal = async_sessionmaker(bind=engine, class_=AsyncSession, expire_on_commit=False)
+    # Register User B
+    res_b = await client.post("/api/v1/auth/register", json={
+        "email": "user_b@enterprise.com",
+        "password": "Password123!",
+        "name": "User B"
+    })
+    token_b = res_b.json()["access_token"]
+    headers_b = {"Authorization": f"Bearer {token_b}"}
 
-    async def override_get_db():
-        async with SessionLocal() as s:
-            try:
-                yield s
-                await s.commit()
-            except Exception:
-                await s.rollback()
-                raise
+    # User A creates a confidential project
+    proj_res = await client.post("/api/v1/projects", json={
+        "name": "Confidential Project A",
+        "type": "financial"
+    }, headers=headers_a)
+    assert proj_res.status_code in [200, 201]
+    proj_a_id = proj_res.json()["id"]
 
-    app.dependency_overrides[get_db] = override_get_db
-    transport = ASGITransport(app=app)
+    # User B attempts to access User A's project directly by ID -> must fail (404/403)
+    unauth_get = await client.get(f"/api/v1/projects/{proj_a_id}", headers=headers_b)
+    assert unauth_get.status_code in [403, 404]
 
-    async with AsyncClient(transport=transport, base_url="http://test") as client:
-        # Register User A
-        res_a = await client.post("/api/v1/auth/register", json={
-            "email": "user_a@enterprise.com",
-            "password": "Password123!",
-            "name": "User A"
-        })
-        token_a = res_a.json()["access_token"]
-        headers_a = {"Authorization": f"Bearer {token_a}"}
-
-        # Register User B
-        res_b = await client.post("/api/v1/auth/register", json={
-            "email": "user_b@enterprise.com",
-            "password": "Password123!",
-            "name": "User B"
-        })
-        token_b = res_b.json()["access_token"]
-        headers_b = {"Authorization": f"Bearer {token_b}"}
-
-        # User A creates a confidential project
-        proj_res = await client.post("/api/v1/projects", json={
-            "name": "Confidential Project A",
-            "type": "financial"
-        }, headers=headers_a)
-        assert proj_res.status_code in [200, 201]
-        proj_a_id = proj_res.json()["id"]
-
-        # User B attempts to access User A's project directly by ID -> must fail (404/403)
-        unauth_get = await client.get(f"/api/v1/projects/{proj_a_id}", headers=headers_b)
-        assert unauth_get.status_code in [403, 404]
-
-        # User B attempts to list files of User A's project -> must fail
-        unauth_files = await client.get(f"/api/v1/files/project/{proj_a_id}", headers=headers_b)
-        assert unauth_files.status_code in [403, 404]
-
-    app.dependency_overrides.clear()
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.drop_all)
-    await engine.dispose()
+    # User B attempts to list files of User A's project -> must fail
+    unauth_files = await client.get(f"/api/v1/files/project/{proj_a_id}", headers=headers_b)
+    assert unauth_files.status_code in [403, 404]
 
 
-@pytest.mark.live
 @pytest.mark.asyncio
-async def test_audit_6_concurrency_and_latency_benchmark():
+async def test_audit_6_concurrency_and_latency_benchmark(
+    deterministic_ai_provider,
+    test_session_factory,
+):
     """AUDIT TEST 6: Concurrency simulation with 20 parallel requests, verifying p50/p95 latency and 0% errors."""
     latencies = []
 
@@ -272,15 +247,35 @@ async def test_audit_6_concurrency_and_latency_benchmark():
     p50 = sorted_lat[len(sorted_lat) // 2]
     p95 = sorted_lat[int(len(sorted_lat) * 0.95)]
 
-    # Assert low latency and 0% error (accommodates live LLM network roundtrips)
-    assert p50 < 30000
-    assert p95 < 60000
+    # The provider is local, so these bounds expose event-loop blocking.
+    assert p50 < 1000
+    assert p95 < 2000
 
 
-@pytest.mark.live
 @pytest.mark.asyncio
-async def test_audit_7_failure_recovery_and_fallback():
+async def test_audit_7_failure_recovery_and_fallback(
+    monkeypatch,
+    test_session_factory,
+):
     """AUDIT TEST 7: Resilient failover from primary to secondary provider without crashing."""
+    class FailingProvider:
+        async def generate(self, **kwargs):
+            raise RuntimeError("primary provider unavailable")
+
+    class WorkingProvider:
+        async def generate(self, **kwargs):
+            return {
+                "text": "Nội dung dự phòng đã được tạo thành công.",
+                "usage": {"prompt_tokens": 8, "completion_tokens": 10},
+            }
+
+    providers = {
+        "gemini": FailingProvider(),
+        "openai": WorkingProvider(),
+    }
+    monkeypatch.setattr(ai_factory, "get_provider", providers.__getitem__)
+    monkeypatch.setattr(ai_gateway, "INITIAL_BACKOFF_SECONDS", 0)
+
     req = AIRequest(
         task_type=AITaskType.SECTION_WRITING,
         prompt="Soạn thảo tổng quan kết quả kinh doanh quý 2 năm 2026",
@@ -289,6 +284,8 @@ async def test_audit_7_failure_recovery_and_fallback():
     resp = await ai_gateway.execute(req)
     assert resp.text is not None
     assert len(resp.text) > 10
+    assert resp.provider == "openai"
+    assert resp.failover_applied is True
 
 
 def test_audit_8_backup_and_restore_data_integrity():

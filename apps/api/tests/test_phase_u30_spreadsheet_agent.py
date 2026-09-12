@@ -48,9 +48,8 @@ def test_deterministic_engine_kpi_and_provenance():
     assert records["Nam"] == 380.0
 
 
-@pytest.mark.live
 @pytest.mark.asyncio
-async def test_spreadsheet_agent_narrative():
+async def test_spreadsheet_agent_narrative(deterministic_ai_provider):
     df = pd.DataFrame({
         "department": ["IT", "Marketing", "Sales", "HR"],
         "budget": [50000.0, 30000.0, 80000.0, 20000.0],

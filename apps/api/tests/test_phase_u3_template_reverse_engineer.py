@@ -5,9 +5,8 @@ from app.core.config import settings
 from app.services.templates.template_reverse_engineering_service import template_reverse_engineer
 
 
-@pytest.mark.live
 @pytest.mark.asyncio
-async def test_reverse_engineer_docx():
+async def test_reverse_engineer_docx(deterministic_ai_provider):
     # Create sample business report docx
     doc = docx.Document()
     doc.add_heading("BÁO CÁO TÀI CHÍNH NĂM {{fiscal_year}}", level=0)
@@ -30,9 +29,8 @@ async def test_reverse_engineer_docx():
     assert schema["styles"]["paper"] == "A4"
 
 
-@pytest.mark.live
 @pytest.mark.asyncio
-async def test_reverse_engineer_api(client: AsyncClient):
+async def test_reverse_engineer_api(client: AsyncClient, deterministic_ai_provider):
     reg_res = await client.post("/api/v1/auth/register", json={
         "email": "template_admin@corp.com",
         "password": "Password123!",

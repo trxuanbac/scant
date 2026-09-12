@@ -3,9 +3,8 @@ from httpx import AsyncClient
 from app.services.citations.fact_inspector import fact_inspector
 
 
-@pytest.mark.live
 @pytest.mark.asyncio
-async def test_fact_inspector_unit():
+async def test_fact_inspector_unit(deterministic_ai_provider):
     sources = [
         {
             "title": "Báo cáo Doanh thu EV 2026",
@@ -20,9 +19,8 @@ async def test_fact_inspector_unit():
     assert "claims" in res
 
 
-@pytest.mark.live
 @pytest.mark.asyncio
-async def test_fact_inspect_api(client: AsyncClient):
+async def test_fact_inspect_api(client: AsyncClient, deterministic_ai_provider):
     reg_res = await client.post("/api/v1/auth/register", json={
         "email": "fact_checker@corp.com",
         "password": "Password123!",
