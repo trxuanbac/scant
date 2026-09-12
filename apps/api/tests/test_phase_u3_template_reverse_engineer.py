@@ -34,6 +34,7 @@ async def client(db_session: AsyncSession):
     app.dependency_overrides.clear()
 
 
+@pytest.mark.live
 @pytest.mark.asyncio
 async def test_reverse_engineer_docx():
     # Create sample business report docx
@@ -58,6 +59,7 @@ async def test_reverse_engineer_docx():
     assert schema["styles"]["paper"] == "A4"
 
 
+@pytest.mark.live
 @pytest.mark.asyncio
 async def test_reverse_engineer_api(client: AsyncClient):
     reg_res = await client.post("/api/v1/auth/register", json={

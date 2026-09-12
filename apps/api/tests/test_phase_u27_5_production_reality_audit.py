@@ -23,6 +23,7 @@ from app.services.ai.types import AIRequest, AITaskType
 PG_TEST_DB_URL = "postgresql+asyncpg://localhost/ai_report_studio_audit"
 
 
+@pytest.mark.live
 @pytest.mark.asyncio
 async def test_audit_1_real_postgresql_integration():
     """AUDIT TEST 1: Real PostgreSQL migrations, concurrent writes, persistence & rollback."""
@@ -241,6 +242,7 @@ async def test_audit_5_multi_user_isolation():
     await engine.dispose()
 
 
+@pytest.mark.live
 @pytest.mark.asyncio
 async def test_audit_6_concurrency_and_latency_benchmark():
     """AUDIT TEST 6: Concurrency simulation with 20 parallel requests, verifying p50/p95 latency and 0% errors."""
@@ -275,6 +277,7 @@ async def test_audit_6_concurrency_and_latency_benchmark():
     assert p95 < 60000
 
 
+@pytest.mark.live
 @pytest.mark.asyncio
 async def test_audit_7_failure_recovery_and_fallback():
     """AUDIT TEST 7: Resilient failover from primary to secondary provider without crashing."""

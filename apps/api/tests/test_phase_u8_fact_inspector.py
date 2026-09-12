@@ -32,6 +32,7 @@ async def client(db_session: AsyncSession):
     app.dependency_overrides.clear()
 
 
+@pytest.mark.live
 @pytest.mark.asyncio
 async def test_fact_inspector_unit():
     sources = [
@@ -48,6 +49,7 @@ async def test_fact_inspector_unit():
     assert "claims" in res
 
 
+@pytest.mark.live
 @pytest.mark.asyncio
 async def test_fact_inspect_api(client: AsyncClient):
     reg_res = await client.post("/api/v1/auth/register", json={

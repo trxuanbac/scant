@@ -45,6 +45,7 @@ def test_agent_tool_registry():
     assert len(schemas) == len(tools)
 
 
+@pytest.mark.live
 @pytest.mark.asyncio
 async def test_agent_execute_turn_api(client: AsyncClient):
     reg_res = await client.post("/api/v1/auth/register", json={

@@ -23,6 +23,7 @@ async def test_stylometry_and_humanize_engine():
     assert len(res["recommendations"]) > 0
 
 
+@pytest.mark.live
 @pytest.mark.asyncio
 async def test_vietqr_billing_generation():
     checkout = await billing_provider.create_checkout_session(
@@ -51,6 +52,7 @@ De tai 2,Phan tich thi truong EV,market_research,Ban Giam doc
     assert rows[1]["type"] == "market_research"
 
 
+@pytest.mark.live
 @pytest.mark.asyncio
 async def test_mermaid_diagram_agent():
     spec = await visual_diagram_agent.plan_and_generate_diagram(

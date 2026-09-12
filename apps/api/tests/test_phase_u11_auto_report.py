@@ -75,6 +75,7 @@ async def client(db_session: AsyncSession):
     app.dependency_overrides.clear()
 
 
+@pytest.mark.live
 @pytest.mark.asyncio
 async def test_one_click_auto_create_flow(client: AsyncClient):
     reg_res = await client.post("/api/v1/auth/register", json={
@@ -117,6 +118,7 @@ async def test_one_click_auto_create_flow(client: AsyncClient):
     assert retry_res.json()["status"] == "running"
 
 
+@pytest.mark.live
 @pytest.mark.asyncio
 async def test_auto_create_accepts_dataset_link_sheet_range_and_analysis_request(client: AsyncClient, monkeypatch):
     reg_res = await client.post("/api/v1/auth/register", json={
@@ -153,6 +155,7 @@ async def test_auto_create_accepts_dataset_link_sheet_range_and_analysis_request
     assert metadata["dataset_profile"]["total_rows"] == 2
 
 
+@pytest.mark.live
 @pytest.mark.asyncio
 async def test_agentic_background_workflow_completes_with_sections(db_session: AsyncSession):
     project = await project_repo.create(db_session, obj_in={

@@ -32,6 +32,7 @@ async def client(db_session: AsyncSession):
     app.dependency_overrides.clear()
 
 
+@pytest.mark.live
 @pytest.mark.asyncio
 async def test_document_transformation_unit():
     full_text = (
@@ -48,6 +49,7 @@ async def test_document_transformation_unit():
     assert len(res["content"]) > 0
 
 
+@pytest.mark.live
 @pytest.mark.asyncio
 async def test_transform_document_api(client: AsyncClient):
     reg_res = await client.post("/api/v1/auth/register", json={

@@ -2,6 +2,7 @@ import pytest
 from app.services.visuals.diagram_agent import visual_diagram_agent, DiagramType
 
 
+@pytest.mark.live
 @pytest.mark.asyncio
 async def test_diagram_generation_flowchart():
     spec = await visual_diagram_agent.plan_and_generate_diagram(
@@ -16,6 +17,7 @@ async def test_diagram_generation_flowchart():
     assert spec.nodes_count >= 3
 
 
+@pytest.mark.live
 @pytest.mark.asyncio
 async def test_diagram_generation_erd():
     spec = await visual_diagram_agent.plan_and_generate_diagram(
@@ -28,6 +30,7 @@ async def test_diagram_generation_erd():
     assert visual_diagram_agent.validate_mermaid_syntax(spec.mermaid_code) is True
 
 
+@pytest.mark.live
 @pytest.mark.asyncio
 async def test_diagram_generation_sequence():
     spec = await visual_diagram_agent.plan_and_generate_diagram(

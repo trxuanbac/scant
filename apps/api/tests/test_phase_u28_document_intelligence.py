@@ -86,6 +86,7 @@ async def test_image_and_chart_intelligence():
     assert tree.pages[0].blocks[0].block_type == BlockType.CHART
 
 
+@pytest.mark.live
 @pytest.mark.asyncio
 async def test_visual_query_reasoning():
     tree = DocumentIntelligenceTree(

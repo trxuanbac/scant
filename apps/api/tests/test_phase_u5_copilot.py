@@ -33,6 +33,7 @@ async def client(db_session: AsyncSession):
     app.dependency_overrides.clear()
 
 
+@pytest.mark.live
 @pytest.mark.asyncio
 async def test_copilot_chat_flow(client: AsyncClient):
     reg_res = await client.post("/api/v1/auth/register", json={

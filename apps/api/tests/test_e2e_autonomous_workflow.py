@@ -36,6 +36,7 @@ async def client():
         await conn.run_sync(Base.metadata.drop_all)
 
 
+@pytest.mark.live
 @pytest.mark.asyncio
 async def test_full_autonomous_workspace_e2e_workflow(client: AsyncClient):
     """

@@ -31,6 +31,7 @@ async def client(db_session: AsyncSession):
     app.dependency_overrides.clear()
 
 
+@pytest.mark.live
 @pytest.mark.asyncio
 async def test_ai_analyze_intent_flow(client: AsyncClient):
     # 1. Register
