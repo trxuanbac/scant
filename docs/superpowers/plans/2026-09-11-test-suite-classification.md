@@ -39,7 +39,7 @@
 - Produces: `install_network_guard(monkeypatch) -> None`.
 - Default behavior: tests marked `live` are skipped and every other test rejects TCP/DNS/UDP access through Python sockets.
 
-- [ ] **Step 1: Write the policy tests before the support module exists**
+- [x] **Step 1: Write the policy tests before the support module exists**
 
 Create `apps/api/tests/test_suite_policy.py`:
 
@@ -90,7 +90,7 @@ def test_live_marker_sentinel():
     assert True
 ```
 
-- [ ] **Step 2: Run the policy test and confirm collection fails**
+- [x] **Step 2: Run the policy test and confirm collection fails**
 
 Run:
 
@@ -101,7 +101,7 @@ venv/bin/python -m pytest tests/test_suite_policy.py -q
 
 Expected: FAIL during import because `support.network_guard` and the marker policy do not exist.
 
-- [ ] **Step 3: Add the marker configuration**
+- [x] **Step 3: Add the marker configuration**
 
 Create `apps/api/pytest.ini`:
 
@@ -118,7 +118,7 @@ markers =
 
 Create an empty `apps/api/tests/support/__init__.py`.
 
-- [ ] **Step 4: Implement the reusable socket guard**
+- [x] **Step 4: Implement the reusable socket guard**
 
 Create `apps/api/tests/support/network_guard.py`:
 
@@ -176,7 +176,7 @@ def install_network_guard(monkeypatch) -> None:
     monkeypatch.setattr(socket, "getaddrinfo", guarded_getaddrinfo)
 ```
 
-- [ ] **Step 5: Install the policy through root conftest**
+- [x] **Step 5: Install the policy through root conftest**
 
 Create `apps/api/tests/conftest.py`:
 
@@ -215,7 +215,7 @@ def block_network_in_deterministic_tests(request, monkeypatch):
     install_network_guard(monkeypatch)
 ```
 
-- [ ] **Step 6: Run the policy tests in default and explicit-live modes**
+- [x] **Step 6: Run the policy tests in default and explicit-live modes**
 
 Run:
 
@@ -228,7 +228,7 @@ venv/bin/python -m pytest tests/test_suite_policy.py::test_live_marker_sentinel 
 
 Expected: the default command reports four passed and one skipped; the full `--run-live` command reports five passed, proving deterministic tests remain guarded; the sentinel command reports one passed.
 
-- [ ] **Step 7: Commit the policy foundation**
+- [x] **Step 7: Commit the policy foundation**
 
 ```bash
 git add apps/api/pytest.ini apps/api/tests/conftest.py apps/api/tests/support/__init__.py apps/api/tests/support/network_guard.py apps/api/tests/test_suite_policy.py
@@ -248,7 +248,7 @@ git commit -m "test: make backend suite offline by default"
 - Consumes: registered `pytest.mark.live` policy from Task 1.
 - Produces: opt-in classification for tests that call Crossref, arXiv, search providers, DOI resolution, or live web fetches.
 
-- [ ] **Step 1: Run the three modules under the offline guard**
+- [x] **Step 1: Run the three modules under the offline guard**
 
 Run:
 
@@ -259,7 +259,7 @@ venv/bin/python -m pytest tests/test_deep_research_pipeline.py tests/test_phase1
 
 Expected: FAIL with `NetworkAccessBlocked` or existing empty-provider assertions in the live functions, while pure scoring, evidence, and citation tests pass.
 
-- [ ] **Step 2: Mark only direct provider functions live**
+- [x] **Step 2: Mark only direct provider functions live**
 
 Add `@pytest.mark.live` immediately above the existing `@pytest.mark.asyncio` decorator on these functions:
 
@@ -281,7 +281,7 @@ test_source_library_and_citations.py
 
 Do not mark deterministic quality scoring, deduplication, evidence extraction, support evaluation, or citation formatting tests.
 
-- [ ] **Step 3: Verify deterministic research tests and live collection**
+- [x] **Step 3: Verify deterministic research tests and live collection**
 
 Run:
 
@@ -293,7 +293,7 @@ venv/bin/python -m pytest tests/test_deep_research_pipeline.py tests/test_phase1
 
 Expected: the default command passes with eight live skips; the collection command lists exactly eight live tests.
 
-- [ ] **Step 4: Commit research classification**
+- [x] **Step 4: Commit research classification**
 
 ```bash
 git add apps/api/tests/test_deep_research_pipeline.py apps/api/tests/test_phase1c_research_and_citations.py apps/api/tests/test_source_library_and_citations.py
@@ -324,7 +324,7 @@ git commit -m "test: classify live research checks"
 - Consumes: registered `pytest.mark.live` policy from Task 1.
 - Produces: opt-in classification for tests that use a configured AI/payment provider or a real PostgreSQL service.
 
-- [ ] **Step 1: Mark the known external-service functions**
+- [x] **Step 1: Mark the known external-service functions**
 
 Add `@pytest.mark.live` immediately above the existing `@pytest.mark.asyncio` decorator on these functions:
 
@@ -384,7 +384,7 @@ test_superpower_upgrades.py
 
 The PostgreSQL audit is live because it requires a separately running service. The two `test_superpower_upgrades.py` marker hunks must be staged without including unrelated pre-existing changes in that file.
 
-- [ ] **Step 2: Run the affected modules under the default policy**
+- [x] **Step 2: Run the affected modules under the default policy**
 
 Run:
 
@@ -409,7 +409,7 @@ venv/bin/python -m pytest \
 
 Expected: deterministic functions pass and the 24 listed service-dependent functions skip.
 
-- [ ] **Step 3: Verify live tests remain discoverable**
+- [x] **Step 3: Verify live tests remain discoverable**
 
 Run:
 
@@ -420,7 +420,7 @@ venv/bin/python -m pytest --run-live -m live --collect-only -q
 
 Expected: collection includes the eight research tests from Task 2, the 24 service tests from this task, and the policy sentinel: 33 known live tests before the Task 4 leak audit. Any additional legitimate classifications increase this count. No live test executes during collection.
 
-- [ ] **Step 4: Commit service classification**
+- [x] **Step 4: Commit service classification**
 
 Stage only the marker changes and clean files, inspect `git diff --cached`, then commit:
 
@@ -456,7 +456,7 @@ git commit -m "test: classify provider-dependent checks"
 - Consumes: network guard and live taxonomy.
 - Produces: a full default backend suite whose Python TCP/DNS/UDP attempts are rejected by the test guard.
 
-- [ ] **Step 1: Run the full backend suite with fail-fast disabled**
+- [x] **Step 1: Run the full backend suite with fail-fast disabled**
 
 Run:
 
@@ -467,7 +467,7 @@ venv/bin/python -m pytest -q
 
 Expected before final classification: any missed provider-dependent Python socket attempt fails with `NetworkAccessBlocked` before it reaches the requested destination.
 
-- [ ] **Step 2: Classify each remaining failure by behavior**
+- [x] **Step 2: Classify each remaining failure by behavior**
 
 For every remaining failure:
 
@@ -477,7 +477,7 @@ For every remaining failure:
 
 Do not mark an entire mixed module live to silence one function.
 
-- [ ] **Step 3: Re-run each adjusted module**
+- [x] **Step 3: Re-run each adjusted module**
 
 Repeat the tests that failed in the immediately preceding run:
 
@@ -488,7 +488,7 @@ venv/bin/python -m pytest --lf -q
 
 Expected: deterministic corrected tests pass; newly classified live tests skip with the documented reason.
 
-- [ ] **Step 4: Run the full default suite again**
+- [x] **Step 4: Run the full default suite again**
 
 Run:
 
@@ -499,7 +499,7 @@ venv/bin/python -m pytest -q
 
 Expected: PASS with live tests reported as skipped and no `NetworkAccessBlocked` failure.
 
-- [ ] **Step 5: Commit only the leak closures**
+- [x] **Step 5: Commit only the leak closures**
 
 Inspect every staged hunk, then commit:
 
@@ -521,7 +521,7 @@ git commit -m "test: close deterministic suite network leaks"
 - Consumes: `--run-live`, marker taxonomy, and network guard.
 - Produces: exact contributor commands for deterministic and live test execution.
 
-- [ ] **Step 1: Write the testing guide**
+- [x] **Step 1: Write the testing guide**
 
 Create `apps/api/TESTING.md` with these commands and rules:
 
@@ -554,7 +554,7 @@ New tests are deterministic by default. A live marker must describe the real dep
 The socket guard catches application-level Python clients. Phase 0D also blocks container egress in CI so subprocesses and native libraries cannot bypass this policy.
 ````
 
-- [ ] **Step 2: Verify marker registration and collection**
+- [x] **Step 2: Verify marker registration and collection**
 
 Run:
 
@@ -566,7 +566,7 @@ venv/bin/python -m pytest --run-live -m live --collect-only -q
 
 Expected: all four marker descriptions appear and every classified live test is collected.
 
-- [ ] **Step 3: Run Phase 0A verification**
+- [x] **Step 3: Run Phase 0A verification**
 
 Run:
 
@@ -585,11 +585,11 @@ git diff --check
 
 Expected: default backend and all frontend commands pass; lint may report existing warnings but no errors; live tests are skipped, not executed.
 
-- [ ] **Step 4: Record exact results in the testing guide**
+- [x] **Step 4: Record exact results in the testing guide**
 
 Append a dated `Current verification` section to `apps/api/TESTING.md` containing the exact backend passed/skipped counts, frontend test count, and typecheck/lint/build status from Step 3. Do not call skipped live tests passing tests.
 
-- [ ] **Step 5: Commit documentation and final plan state**
+- [x] **Step 5: Commit documentation and final plan state**
 
 ```bash
 git add apps/api/TESTING.md docs/superpowers/plans/2026-09-11-test-suite-classification.md
