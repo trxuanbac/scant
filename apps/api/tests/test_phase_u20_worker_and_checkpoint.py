@@ -1,6 +1,6 @@
 import pytest
 from app.services.worker.checkpoint_engine import checkpoint_engine
-from app.services.worker.queue_manager import ProductionTaskQueue, task_queue, TaskState
+from app.services.worker.queue_manager import ProductionTaskQueue, TaskState
 
 
 def test_pipeline_checkpoint_engine():
@@ -25,6 +25,8 @@ def test_pipeline_checkpoint_engine():
 
 @pytest.mark.asyncio
 async def test_production_task_queue_execution():
+    task_queue = ProductionTaskQueue()
+
     # Register handler
     task_queue.register_handler("deep_research_task", lambda payload: {"status": "researched", "sources_found": 8})
 
@@ -53,6 +55,8 @@ async def test_production_task_queue_execution():
 
 @pytest.mark.asyncio
 async def test_task_queue_cancellation():
+    task_queue = ProductionTaskQueue()
+
     task = await task_queue.enqueue(
         task_name="long_running_ocr",
         payload={"file_id": "file-123"}
