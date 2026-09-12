@@ -56,9 +56,12 @@ def test_pdf_parser(tmp_path: Path):
     assert len(summary["detected_requirements"]) > 0 or len(summary["detected_objectives"]) > 0
 
 
-@pytest.mark.live
 @pytest.mark.asyncio
-async def test_full_phase1b_outline_and_report_flow(client: AsyncClient):
+async def test_full_phase1b_outline_and_report_flow(
+    client: AsyncClient,
+    deterministic_ai_provider,
+    background_task_tracker,
+):
     # 1. Register & Login
     reg_res = await client.post("/api/v1/auth/register", json={
         "email": "author@test.com",

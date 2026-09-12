@@ -47,9 +47,12 @@ def test_generic_data_task_titles_are_detected():
     assert not _looks_like_generic_data_task_title("Báo cáo phân tích dữ liệu bảng lương nhân viên")
 
 
-@pytest.mark.live
 @pytest.mark.asyncio
-async def test_one_click_auto_create_flow(client: AsyncClient):
+async def test_one_click_auto_create_flow(
+    client: AsyncClient,
+    deterministic_ai_provider,
+    background_task_tracker,
+):
     reg_res = await client.post("/api/v1/auth/register", json={
         "email": "autouser@corp.com",
         "password": "Password123!",
@@ -90,9 +93,13 @@ async def test_one_click_auto_create_flow(client: AsyncClient):
     assert retry_res.json()["status"] == "running"
 
 
-@pytest.mark.live
 @pytest.mark.asyncio
-async def test_auto_create_accepts_dataset_link_sheet_range_and_analysis_request(client: AsyncClient, monkeypatch):
+async def test_auto_create_accepts_dataset_link_sheet_range_and_analysis_request(
+    client: AsyncClient,
+    monkeypatch,
+    deterministic_ai_provider,
+    background_task_tracker,
+):
     reg_res = await client.post("/api/v1/auth/register", json={
         "email": "auto_link_data@corp.com",
         "password": "Password123!",
@@ -127,9 +134,11 @@ async def test_auto_create_accepts_dataset_link_sheet_range_and_analysis_request
     assert metadata["dataset_profile"]["total_rows"] == 2
 
 
-@pytest.mark.live
 @pytest.mark.asyncio
-async def test_agentic_background_workflow_completes_with_sections(db_session: AsyncSession):
+async def test_agentic_background_workflow_completes_with_sections(
+    db_session: AsyncSession,
+    deterministic_ai_provider,
+):
     project = await project_repo.create(db_session, obj_in={
         "user_id": "workflow-user",
         "name": "Báo cáo lõi hoạt động thật",

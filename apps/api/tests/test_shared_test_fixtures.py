@@ -1,3 +1,5 @@
+import asyncio
+
 from sqlalchemy import select
 
 import pytest
@@ -5,6 +7,7 @@ import pytest
 from app.main import app
 from app.services.ai.gemini_provider import GeminiProvider
 from app.models.entities import User
+from support.background_tasks import BackgroundTaskTracker
 from support.database import create_isolated_database
 
 
@@ -91,3 +94,18 @@ async def test_deterministic_ai_provider_returns_an_offline_payload(
     assert response["text"]
     assert response["provider"] == "gemini"
     assert response["is_demo"] is True
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_background_task_tracker_cancels_pending_tasks():
+    tracker = BackgroundTaskTracker()
+    task = tracker.create_task(asyncio.Event().wait())
+
+    await asyncio.sleep(0)
+    assert not task.done()
+
+    await tracker.close()
+
+    assert task.cancelled()
+    assert tracker.tasks == set()

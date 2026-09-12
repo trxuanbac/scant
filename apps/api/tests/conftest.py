@@ -1,4 +1,5 @@
 from contextlib import contextmanager
+from types import SimpleNamespace
 
 import pytest
 import pytest_asyncio
@@ -7,6 +8,7 @@ from httpx import ASGITransport, AsyncClient
 from app.core import database
 from app.core.database import get_db
 from app.main import app
+from support.background_tasks import BackgroundTaskTracker
 from support.database import create_isolated_database
 from support.network_guard import install_network_guard
 
@@ -94,6 +96,22 @@ async def client(test_session_factory, dependency_override_scope):
     with dependency_override_scope({get_db: override_get_db}):
         async with AsyncClient(transport=transport, base_url="http://test") as api_client:
             yield api_client
+
+
+@pytest_asyncio.fixture
+async def background_task_tracker(monkeypatch, test_session_factory):
+    from app.api.v1 import reports
+
+    tracker = BackgroundTaskTracker()
+    monkeypatch.setattr(
+        reports,
+        "asyncio",
+        SimpleNamespace(create_task=tracker.create_task),
+    )
+    try:
+        yield tracker
+    finally:
+        await tracker.close()
 
 
 @pytest.fixture
