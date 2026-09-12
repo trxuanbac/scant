@@ -2,6 +2,7 @@ import pytest
 import pytest_asyncio
 import pandas as pd
 import json
+import socket
 from pathlib import Path
 from httpx import AsyncClient, ASGITransport
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
@@ -262,8 +263,13 @@ def test_google_sheets_url_normalizer_and_range():
     assert "gviz/tq?tqx=out:csv&sheet=DS1&range=A1%3AH50" in norm4
 
 
-def test_url_dataset_loader_ssrf_blocking():
+def test_url_dataset_loader_ssrf_blocking(monkeypatch):
     from app.services.data.url_dataset_loader import UrlDatasetLoader
+
+    def deterministic_getaddrinfo(host, port, *args, **kwargs):
+        return [(socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", (host, port or 0))]
+
+    monkeypatch.setattr(socket, "getaddrinfo", deterministic_getaddrinfo)
 
     with pytest.raises(ValueError, match="Chỉ hỗ trợ liên kết http/https công khai"):
         UrlDatasetLoader._validate_public_host("file:///etc/passwd")

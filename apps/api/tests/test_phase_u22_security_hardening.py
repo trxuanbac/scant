@@ -1,4 +1,5 @@
 import io
+import socket
 import zipfile
 import pytest
 from app.services.security.ssrf_validator import ssrf_validator
@@ -7,7 +8,13 @@ from app.services.security.secret_manager import secret_manager
 from app.core.config import DEFAULT_JWT_SECRET, Settings
 
 
-def test_ssrf_protection():
+def test_ssrf_protection(monkeypatch):
+    def deterministic_getaddrinfo(host, port, *args, **kwargs):
+        resolved_host = host if host.replace(".", "").isdigit() else "93.184.216.34"
+        return [(socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", (resolved_host, port or 0))]
+
+    monkeypatch.setattr(socket, "getaddrinfo", deterministic_getaddrinfo)
+
     # 1. Block internal addresses & cloud metadata
     blocked_urls = [
         "http://localhost:8080/admin",
