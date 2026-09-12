@@ -1,37 +1,17 @@
 import pytest
 import pytest_asyncio
-from httpx import ASGITransport, AsyncClient
-from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 from sqlalchemy import select
 from datetime import datetime, timezone
-from app.main import app
-from app.core.database import Base, get_db
 from app.core.security import create_access_token
 from app.models.entities import User, AIUsageEvent, AuditLog, UserQuota, Project
 
 @pytest_asyncio.fixture
-async def ctx():
-    engine = create_async_engine('sqlite+aiosqlite:///:memory:')
-    factory = async_sessionmaker(engine, expire_on_commit=False)
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    async with factory() as db:
+async def ctx(client, test_session_factory):
+    async with test_session_factory() as db:
         for uid, role, su in [('user','user',False),('admin','admin',False),('root','admin',True)]:
             db.add(User(id=uid,name=uid,email=f'{uid}@example.test',role=role,is_superuser=su,plan='free'))
         await db.commit()
-    async def dependency():
-        async with factory() as db:
-            try:
-                yield db
-                await db.commit()
-            except Exception:
-                await db.rollback()
-                raise
-    app.dependency_overrides[get_db] = dependency
-    async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as client:
-        yield client, factory
-    app.dependency_overrides.clear()
-    await engine.dispose()
+    yield client, test_session_factory
 
 def auth(uid):
     return {'Authorization': f'Bearer {create_access_token(subject=uid)}'}

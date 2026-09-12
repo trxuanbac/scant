@@ -1,41 +1,9 @@
 import io
 import docx
 import pytest
-import pytest_asyncio
-from httpx import AsyncClient, ASGITransport
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
-from app.main import app
-from app.core.database import Base, get_db
+from httpx import AsyncClient
 from app.services.documents.intelligence.document_intelligence_engine import document_intelligence_engine
 from app.services.documents.intelligence.types import BlockType, DocumentIntelligenceTree
-
-TEST_DB_URL = "sqlite+aiosqlite:///:memory:"
-test_engine = create_async_engine(TEST_DB_URL, connect_args={"check_same_thread": False})
-TestAsyncSession = async_sessionmaker(bind=test_engine, class_=AsyncSession, expire_on_commit=False)
-
-
-@pytest_asyncio.fixture(scope="function")
-async def client():
-    async with test_engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-
-    async def override_get_db():
-        async with TestAsyncSession() as session:
-            try:
-                yield session
-                await session.commit()
-            except Exception:
-                await session.rollback()
-                raise
-
-    app.dependency_overrides[get_db] = override_get_db
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as c:
-        yield c
-
-    app.dependency_overrides.clear()
-    async with test_engine.begin() as conn:
-        await conn.run_sync(Base.metadata.drop_all)
 
 
 @pytest.mark.asyncio
@@ -86,9 +54,8 @@ async def test_image_and_chart_intelligence():
     assert tree.pages[0].blocks[0].block_type == BlockType.CHART
 
 
-@pytest.mark.live
 @pytest.mark.asyncio
-async def test_visual_query_reasoning():
+async def test_visual_query_reasoning(deterministic_ai_provider):
     tree = DocumentIntelligenceTree(
         document_id="doc-test-1",
         filename="financial_dashboard.png",
