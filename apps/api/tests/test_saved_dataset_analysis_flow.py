@@ -1,4 +1,5 @@
 from pathlib import Path
+import hashlib
 
 import pytest
 from fastapi import HTTPException
@@ -82,6 +83,10 @@ async def test_saved_dataset_profile_returns_display_identity(ctx, tmp_path, mon
     assert response.json()["file_id"] == "saved-dataset"
     assert response.json()["file_name"] == "Doanh_thu.csv"
     assert response.json()["original_name"] == "Doanh_thu.csv"
+    assert response.json()["source_version"]["source_id"] == "saved-dataset"
+    assert response.json()["source_version"]["version"] == hashlib.sha256(
+        b"name,revenue\nA,100\nB,200\n"
+    ).hexdigest()
 
 
 @pytest.mark.asyncio

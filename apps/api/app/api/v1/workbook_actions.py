@@ -14,8 +14,8 @@ from app.api.deps import get_current_user
 from app.core.database import get_db
 from app.models.entities import User, AuditLog
 from app.models.workbook_action import WorkbookAction
-from app.services.data.data_access import owned_dataset, validated_highlight
-from app.services.data.url_dataset_loader import url_dataset_loader
+from app.services.data.analysis_source import resolve_analysis_source
+from app.services.data.data_access import validated_highlight
 
 router = APIRouter(prefix='/data/workbook-actions', tags=['data'])
 
@@ -30,27 +30,9 @@ class LayerSpec(BaseModel):
 
 
 async def source_bytes(db, user, file, file_id, data_source_url):
-    if file_id:
-        from pathlib import Path
-        record = await owned_dataset(db, file_id, user)
-        path = Path(record.file_path)
-        if not path.is_file():
-            raise HTTPException(404, 'Tệp dữ liệu không còn tồn tại.')
-        if path.stat().st_size > 50 * 1024 * 1024:
-            raise HTTPException(413, 'Tệp vượt giới hạn 50MB.')
-        content = path.read_bytes()
-    elif file:
-        content = await file.read(50 * 1024 * 1024 + 1)
-    elif data_source_url:
-        try:
-            content, _, _ = await url_dataset_loader.load(data_source_url)
-        except ValueError as exc:
-            raise HTTPException(422, str(exc))
-    else:
-        raise HTTPException(422, 'Cần cung cấp workbook để kiểm tra phiên bản.')
-    if not content or len(content) > 50 * 1024 * 1024:
-        raise HTTPException(413, 'Tệp trống hoặc vượt giới hạn 50MB.')
-    return content
+    return await resolve_analysis_source(
+        db, user, file=file, file_id=file_id, data_source_url=data_source_url
+    )
 
 
 def key_hash(value):
@@ -97,7 +79,8 @@ async def preview_action(source_key: str = Form(..., min_length=1, max_length=10
     if spec.type == 'HIGHLIGHT_CELLS':
         spec.cells, normalized_color = validated_highlight(json.dumps(spec.cells), spec.color)
         spec.color = "#" + normalized_color[-6:]
-    content = await source_bytes(db, user, file, file_id, data_source_url)
+    source = await source_bytes(db, user, file, file_id, data_source_url)
+    content = source.content
     try:
         wb = openpyxl.load_workbook(io.BytesIO(content), read_only=True, data_only=False)
         try:
@@ -152,7 +135,8 @@ async def owned_action(db, user, action_id):
 async def confirm(action_id: str, file: Optional[UploadFile] = File(None), file_id: Optional[str] = Form(None),
                   data_source_url: Optional[str] = Form(None), user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     item = await owned_action(db, user, action_id)
-    content = await source_bytes(db, user, file, file_id, data_source_url)
+    source = await source_bytes(db, user, file, file_id, data_source_url)
+    content = source.content
     if hashlib.sha256(content).hexdigest() != item.source_hash:
         raise HTTPException(409, 'Workbook đã thay đổi. Hãy xem trước lại.')
     await lock_owner(db, user)
@@ -202,5 +186,8 @@ async def undo(action_id: str, user: User = Depends(get_current_user), db: Async
 async def source_version(file: Optional[UploadFile] = File(None), file_id: Optional[str] = Form(None),
                          data_source_url: Optional[str] = Form(None), user: User = Depends(get_current_user),
                          db: AsyncSession = Depends(get_db)):
-    content = await source_bytes(db, user, file, file_id, data_source_url)
-    return {'source_hash': hashlib.sha256(content).hexdigest()}
+    source = await source_bytes(db, user, file, file_id, data_source_url)
+    return {
+        'source_hash': source.source_version.version,
+        'source_version': source.source_version.as_dict(),
+    }

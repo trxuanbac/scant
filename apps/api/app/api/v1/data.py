@@ -21,6 +21,7 @@ from uuid import uuid4
 from urllib.parse import urlencode
 from app.services.storage.signed_url_service import signed_url_service
 from app.services.data.data_access import owned_dataset, safe_dataset_name, save_dataset, validated_highlight
+from app.services.data.analysis_source import resolve_analysis_source
 import json
 from fastapi.responses import FileResponse
 
@@ -51,6 +52,7 @@ async def preview_uploaded_dataset(
     sheet_range: Optional[str] = Form(None),
     analysis_request: Optional[str] = Form(None),
     current_user: Optional[User] = Depends(get_current_user_optional),
+    db: AsyncSession = Depends(get_db),
 ):
     has_file = file is not None and bool(file.filename and file.filename.strip())
     url_str = (data_source_url or "").strip()
@@ -61,34 +63,17 @@ async def preview_uploaded_dataset(
             detail="Vui lòng tải tệp dữ liệu từ máy hoặc dán link dữ liệu công khai."
         )
 
-    if has_file and file is not None:
-        filename = file.filename or "dataset"
-        contents = await file.read(50 * 1024 * 1024 + 1)
-        mime_type = file.content_type or "application/octet-stream"
-        source_mode = "file"
-    else:
-        try:
-            contents, filename, mime_type = await url_dataset_loader.load(url_str, sheet_range=sheet_range)
-        except ValueError as ve:
-            raise HTTPException(status_code=400, detail=str(ve))
-        except Exception as e:
-            raise HTTPException(status_code=400, detail=f"Không thể tải dữ liệu từ liên kết: {str(e)}")
-        source_mode = "url"
-
-    ext = Path(filename).suffix.lower()
-    if ext not in [".xlsx", ".xls", ".xlsm", ".csv"]:
-        raise HTTPException(
-            status_code=400,
-            detail="Chỉ hỗ trợ tệp dữ liệu XLSX, XLS, XLSM hoặc CSV."
-        )
-
-    if len(contents) > 50 * 1024 * 1024:
-        raise HTTPException(status_code=400, detail="Tệp vượt quá giới hạn dung lượng 50MB.")
-
-    user_tag = str(current_user.id) if current_user else "guest"
-
-    filename = safe_dataset_name(filename)
-    tmp_path = save_dataset(contents, filename, user_tag)
+    source_mode = "file" if has_file else "url"
+    source = await resolve_analysis_source(
+        db,
+        current_user,
+        file=file if has_file else None,
+        data_source_url=url_str if not has_file else None,
+        sheet_range=sheet_range,
+    )
+    filename = source.source_version.display_name
+    mime_type = source.source_version.mime_type
+    tmp_path = source.path
 
     try:
         profile = data_engine.profile_dataset(str(tmp_path), sheet_range=sheet_range)
@@ -112,6 +97,7 @@ async def preview_uploaded_dataset(
             "analysis_request": analysis_request or "",
             "file_name": filename,
             "mime_type": mime_type,
+            "source_version": source.source_version.as_dict(),
             "sheet_count": profile.get("sheet_count"),
             "total_rows": profile.get("total_rows"),
             "total_columns": profile.get("total_columns"),
@@ -134,6 +120,8 @@ async def preview_uploaded_dataset(
             "initial_analysis": initial_analysis,
             "workbook_context": workbook_ctx,
         }
+    except HTTPException:
+        raise
     except ValueError as ve:
         raise HTTPException(status_code=400, detail=str(ve))
     except Exception as e:
@@ -150,31 +138,19 @@ async def analyze_specific_sheet(
     current_user: Optional[User] = Depends(get_current_user_optional),
     db: AsyncSession = Depends(get_db),
 ):
-    target_path = None
-    user_tag = str(current_user.id) if current_user else "guest"
-    if file_id:
-        f = await owned_dataset(db, file_id, current_user)
-        if f and Path(f.file_path).exists():
-            target_path = f.file_path
-    elif file is not None and bool(file.filename and file.filename.strip()):
-        contents = await file.read(50 * 1024 * 1024 + 1)
-
-        target_path = save_dataset(contents, file.filename, user_tag)
-    elif data_source_url and data_source_url.strip():
-        contents, filename, mime_type = await url_dataset_loader.load(data_source_url.strip())
-
-        target_path = save_dataset(contents, filename, user_tag)
-
-    if not target_path or not Path(target_path).exists():
-        raise HTTPException(status_code=400, detail="Không tìm thấy tệp dữ liệu để phân tích sheet.")
+    source = await resolve_analysis_source(
+        db, current_user, file=file, file_id=file_id, data_source_url=data_source_url
+    )
 
     try:
         analysis = await sheet_analysis_service.analyze_sheet(
-            file_path=target_path,
+            file_path=str(source.path),
             sheet_name=sheet_name,
             force_refresh=force_refresh,
         )
         return {"ok": True, "analysis": analysis}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Lỗi khi phân tích sheet: {str(e)}")
 
@@ -192,23 +168,10 @@ async def chat_with_workbook(
     current_user: Optional[User] = Depends(get_current_user_optional),
     db: AsyncSession = Depends(get_db),
 ):
-    target_path = None
     user_tag = str(current_user.id) if current_user else "guest"
-    if file_id:
-        f = await owned_dataset(db, file_id, current_user)
-        if f and Path(f.file_path).exists():
-            target_path = f.file_path
-    elif file is not None and bool(file.filename and file.filename.strip()):
-        contents = await file.read(50 * 1024 * 1024 + 1)
-
-        target_path = save_dataset(contents, file.filename, user_tag)
-    elif data_source_url and data_source_url.strip():
-        contents, filename, mime_type = await url_dataset_loader.load(data_source_url.strip())
-
-        target_path = save_dataset(contents, filename, user_tag)
-
-    if not target_path or not Path(target_path).exists():
-        raise HTTPException(status_code=400, detail="Không tìm thấy tệp dữ liệu bảng tính để trò chuyện.")
+    source = await resolve_analysis_source(
+        db, current_user, file=file, file_id=file_id, data_source_url=data_source_url
+    )
 
     try:
         parsed_scope = None
@@ -218,14 +181,16 @@ async def chat_with_workbook(
             except json.JSONDecodeError:
                 raise HTTPException(status_code=400, detail="Scope chat không hợp lệ.")
         response = await workbook_chat_service.chat(
-            file_path=target_path,
+            file_path=str(source.path),
             message=message,
             sheet_name=sheet_name,
             selected_range=selected_range,
-            conversation_id=f"{user_tag}:{hashlib.sha256(Path(target_path).read_bytes()).hexdigest()}:{conversation_id or uuid4().hex}",
+            conversation_id=f"{user_tag}:{source.source_version.version}:{conversation_id or uuid4().hex}",
             scope=parsed_scope,
         )
         return {"ok": True, **response}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Lỗi xử lý câu hỏi bảng tính: {str(e)}")
 
@@ -244,23 +209,10 @@ async def run_workbook_analysis_action(
     current_user: Optional[User] = Depends(get_current_user_optional),
     db: AsyncSession = Depends(get_db),
 ):
-    target_path = None
     user_tag = str(current_user.id) if current_user else "guest"
-    if file_id:
-        f = await owned_dataset(db, file_id, current_user)
-        if f and Path(f.file_path).exists():
-            target_path = f.file_path
-    elif file is not None and bool(file.filename and file.filename.strip()):
-        contents = await file.read(50 * 1024 * 1024 + 1)
-
-        target_path = save_dataset(contents, file.filename, user_tag)
-    elif data_source_url and data_source_url.strip():
-        contents, filename, mime_type = await url_dataset_loader.load(data_source_url.strip())
-
-        target_path = save_dataset(contents, filename, user_tag)
-
-    if not target_path or not Path(target_path).exists():
-        raise HTTPException(status_code=400, detail="Không tìm thấy tệp dữ liệu để chạy phân tích.")
+    source = await resolve_analysis_source(
+        db, current_user, file=file, file_id=file_id, data_source_url=data_source_url
+    )
 
     try:
         parsed_scope = None
@@ -270,11 +222,11 @@ async def run_workbook_analysis_action(
             except json.JSONDecodeError:
                 raise HTTPException(status_code=400, detail="Scope phân tích không hợp lệ.")
         response = await workbook_chat_service.analyze_action(
-            file_path=target_path,
+            file_path=str(source.path),
             prompt=prompt,
             sheet_name=sheet_name,
             selected_range=selected_range,
-            conversation_id=f"{user_tag}:{hashlib.sha256(Path(target_path).read_bytes()).hexdigest()}:{conversation_id or uuid4().hex}",
+            conversation_id=f"{user_tag}:{source.source_version.version}:{conversation_id or uuid4().hex}",
             scope=parsed_scope,
             highlight_color=highlight_color,
             data_source_url=data_source_url,
@@ -282,6 +234,8 @@ async def run_workbook_analysis_action(
             db=db,
         )
         return {"ok": True, **response}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Lỗi chạy phân tích workbook: {str(e)}")
 
@@ -539,19 +493,15 @@ async def profile_file_dataset(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    f = await owned_dataset(db, file_id, current_user)
-    if not f:
-        raise HTTPException(status_code=404, detail="File not found")
-
-    if not Path(f.file_path).exists():
-        raise HTTPException(status_code=404, detail="File path does not exist on disk")
+    source = await resolve_analysis_source(db, current_user, file_id=file_id)
 
     try:
-        profile = data_engine.profile_dataset(f.file_path)
-        visual_workbook = spreadsheet_visual_engine.extract_visual_workbook(f.file_path)
-        profile["file_id"] = f.id
-        profile["file_name"] = f.original_name
-        profile["original_name"] = f.original_name
+        profile = data_engine.profile_dataset(str(source.path))
+        visual_workbook = spreadsheet_visual_engine.extract_visual_workbook(str(source.path))
+        profile["file_id"] = source.source_version.source_id
+        profile["file_name"] = source.source_version.display_name
+        profile["original_name"] = source.source_version.display_name
+        profile["source_version"] = source.source_version.as_dict()
         profile["visual_workbook"] = visual_workbook
         return profile
     except Exception as e:

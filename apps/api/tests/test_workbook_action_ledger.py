@@ -92,6 +92,21 @@ async def test_legacy_undo_requires_authentication(ctx):
     c,_=ctx
     assert (await c.post('/api/v1/data/action-undo',data={'session_id':'default'})).status_code==401
 
+
+@pytest.mark.asyncio
+async def test_source_endpoint_returns_the_complete_version_identity(ctx):
+    c, _ = ctx
+    response = await c.post(
+        '/api/v1/data/workbook-actions/source',
+        headers=auth('user'),
+        files={'file': ('payroll.xlsx', workbook())},
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body['source_hash'] == body['source_version']['version']
+    assert body['source_version']['source_kind'] == 'upload'
+    assert body['source_version']['display_name'] == 'payroll.xlsx'
+
 @pytest.mark.asyncio
 async def test_records_survive_database_engine_restart(tmp_path):
     from sqlalchemy.ext.asyncio import create_async_engine,async_sessionmaker
