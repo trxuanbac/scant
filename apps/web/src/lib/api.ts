@@ -128,12 +128,8 @@ export const api = {
     checkReport: (reportId: string) => request<any>(`/ai/check-report/${reportId}`, { method: "POST" }),
     humanize: (data: { text: string; style?: string; custom_instructions?: string }) =>
       request<any>("/ai/humanize", { method: "POST", body: JSON.stringify(data) }),
-    inspectStylometry: (data: { text: string }) =>
-      request<any>("/ai/inspect-stylometry", { method: "POST", body: JSON.stringify(data) }),
     generateDiagram: (data: { context_text: string; diagram_type?: string; diagram_title?: string; detail_level?: string }) =>
       request<any>("/ai/diagram/generate", { method: "POST", body: JSON.stringify(data) }),
-    voiceToReport: (formData: FormData) =>
-      request<any>("/ai/voice-to-report", { method: "POST", body: formData }),
   },
 
   // Research
@@ -189,21 +185,6 @@ export const api = {
     retryJob: (jobId: string) => request<any>(`/reports/jobs/${jobId}/retry`, { method: "POST" }),
     bulkPreview: (formData: FormData) => request<any>("/reports/bulk-preview", { method: "POST", body: formData }),
     bulkCreate: (formData: FormData) => request<any>("/reports/bulk-create", { method: "POST", body: formData }),
-  },
-
-  // Automations
-  automations: {
-    list: () => request<any[]>("/automations"),
-    get: (id: string) => request<any>(`/automations/${id}`),
-    create: (data: any) => request<any>("/automations", { method: "POST", body: JSON.stringify(data) }),
-    update: (id: string, data: any) => request<any>(`/automations/${id}`, { method: "PUT", body: JSON.stringify(data) }),
-    delete: (id: string) => request<any>(`/automations/${id}`, { method: "DELETE" }),
-    pause: (id: string) => request<any>(`/automations/${id}/pause`, { method: "POST" }),
-    resume: (id: string) => request<any>(`/automations/${id}/resume`, { method: "POST" }),
-    trigger: (automationId: string) => request<any>(`/automations/${automationId}/trigger`, { method: "POST" }),
-    runs: (automationId: string) => request<any[]>(`/automations/${automationId}/runs`),
-    getRun: (runId: string) => request<any>(`/automations/runs/${runId}`),
-    retryRun: (runId: string) => request<any>(`/automations/runs/${runId}/retry`, { method: "POST" }),
   },
 
   // Admin

@@ -1,13 +1,13 @@
-export function hasDatasetSource({ mode, files, url }) {
+export function hasDatasetSource({ mode, files, url, fileId }) {
   if (mode === "url") return Boolean((url || "").trim());
-  return (files || []).some((file) => /\.(xlsx|xls|xlsm|csv)$/i.test(file.name || ""));
+  return Boolean((fileId || "").trim()) || (files || []).some((file) => /\.(xlsx|xls|xlsm|csv)$/i.test(file.name || ""));
 }
 
-export function buildDatasetSourcePromptParts({ locale, mode, files, url, sheetRange, analysisRequest }) {
+export function buildDatasetSourcePromptParts({ locale, mode, files, url, fileId, fileName, sheetRange, analysisRequest }) {
   const vi = locale === "vi";
   const source = mode === "url"
     ? (url || "").trim()
-    : (files || []).map((file) => file.name).filter(Boolean).join(", ");
+    : (files || []).map((file) => file.name).filter(Boolean).join(", ") || (fileName || fileId || "").trim();
 
   return [
     vi ? `Nguồn dữ liệu bắt buộc: ${source}` : `Required data source: ${source}`,

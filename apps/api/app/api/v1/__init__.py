@@ -10,8 +10,6 @@ from app.api.v1.research import router as research_router
 from app.api.v1.exports import router as exports_router
 from app.api.v1.data import router as data_router
 from app.api.v1.changesets import router as changesets_router
-from app.api.v1.collaboration import router as collaboration_router
-from app.api.v1.automations import router as automations_router
 from app.api.v1.usage import router as usage_router
 from app.api.v1.billing import router as billing_router
 from app.api.v1.admin import router as admin_router
@@ -21,7 +19,10 @@ from app.api.v1.brand_kit import router as brand_kit_router
 from app.api.v1.assets import router as assets_router
 from app.api.v1.sources import router as sources_router
 
+from app.api.v1.workbook_actions import router as workbook_actions_router
+
 api_router = APIRouter()
+api_router.include_router(workbook_actions_router)
 api_router.include_router(health_router)
 api_router.include_router(auth_router)
 api_router.include_router(projects_router)
@@ -33,8 +34,6 @@ api_router.include_router(research_router)
 api_router.include_router(exports_router)
 api_router.include_router(data_router)
 api_router.include_router(changesets_router)
-api_router.include_router(collaboration_router)
-api_router.include_router(automations_router)
 api_router.include_router(usage_router)
 api_router.include_router(billing_router)
 api_router.include_router(admin_router)

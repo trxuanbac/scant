@@ -3,6 +3,7 @@ import base64
 import html
 import re
 import textwrap
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status, Form, UploadFile, File
 from sqlalchemy import select
@@ -17,6 +18,8 @@ from app.schemas.report import (
     ReportSectionCreate, ReportSectionUpdate, ReportSectionResponse, OutlineItem
 )
 from app.api.deps import get_current_user
+from app.core.config import settings
+from app.services.data.data_access import owned_dataset
 
 router = APIRouter(prefix="/reports", tags=["reports"])
 
@@ -41,6 +44,27 @@ async def _ensure_job_owner(db: AsyncSession, job: Job, current_user: User) -> P
     if not project or project.user_id != current_user.id:
         raise HTTPException(status_code=404, detail="Job not found")
     return project
+
+
+async def _resolve_stored_dataset_source(
+    db: AsyncSession,
+    current_user: User,
+    dataset_file_id: str,
+) -> tuple[UploadedFile, Path]:
+    record = await owned_dataset(db, dataset_file_id, current_user)
+    stored_path = Path(record.file_path).resolve()
+    upload_root = Path(settings.UPLOAD_DIR).resolve()
+    try:
+        stored_path.relative_to(upload_root)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Không tìm thấy tệp dữ liệu.")
+    if not stored_path.is_file():
+        raise HTTPException(status_code=404, detail="Không tìm thấy tệp dữ liệu.")
+    if stored_path.suffix.lower() not in {".xlsx", ".xlsm", ".xls", ".csv"}:
+        raise HTTPException(status_code=422, detail="Tệp đã chọn không phải dữ liệu bảng tính được hỗ trợ.")
+    if stored_path.stat().st_size > 50 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="Tệp vượt quá giới hạn dung lượng 50MB.")
+    return record, stored_path
 
 
 async def _resolve_template_version_id(db: AsyncSession, template_id: Optional[str]) -> Optional[str]:
@@ -637,6 +661,7 @@ async def one_click_auto_create(
     template_id: Optional[str] = Form(None),
     use_uploaded_template: bool = Form(False),
     data_source_url: Optional[str] = Form(None),
+    dataset_file_id: Optional[str] = Form(None),
     sheet_range: Optional[str] = Form(None),
     analysis_request: Optional[str] = Form(None),
     files: Optional[List[UploadFile]] = File(None),
@@ -659,6 +684,22 @@ async def one_click_auto_create(
     from app.core.config import settings
     import hashlib
     from pathlib import Path
+
+    uploaded_dataset_files = [
+        item for item in (files or [])
+        if Path(item.filename or "").suffix.lower() in {".xlsx", ".xlsm", ".xls", ".csv"}
+    ]
+    if dataset_file_id and ((data_source_url or "").strip() or uploaded_dataset_files):
+        raise HTTPException(status_code=422, detail="Chỉ chọn một nguồn dữ liệu bảng tính cho mỗi báo cáo.")
+
+    stored_dataset = None
+    stored_dataset_path = None
+    if dataset_file_id:
+        stored_dataset, stored_dataset_path = await _resolve_stored_dataset_source(
+            db,
+            current_user,
+            dataset_file_id,
+        )
 
     # 1. AI Intent Analysis
     intent = await outline_service.analyze_intent(AnalyzeIntentRequest(user_prompt=prompt))
@@ -765,6 +806,13 @@ async def one_click_auto_create(
             "document_type": "dataset",
             "token_count": len(txt) // 4,
         })
+
+    if stored_dataset is not None and stored_dataset_path is not None:
+        await store_dataset_from_bytes(
+            stored_dataset_path.read_bytes(),
+            stored_dataset.original_name,
+            stored_dataset.mime_type,
+        )
 
     if (data_source_url or "").strip():
         try:

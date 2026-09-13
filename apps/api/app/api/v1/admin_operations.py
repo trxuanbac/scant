@@ -7,7 +7,7 @@ from sqlalchemy import select
 from pydantic import BaseModel, Field, ConfigDict
 from app.core.admin_access import require_admin, require_super_admin
 from app.core.database import get_db
-from app.models.entities import User, Template, Automation
+from app.models.entities import User, Template
 from app.services.admin import operations_service as ops
 from app.services.admin.audit_service import record_audit
 from app.services.admin.query_service import period
@@ -46,30 +46,12 @@ async def settings(user:User=Depends(require_super_admin),db:AsyncSession=Depend
     return {**ops.system_settings(),'runtime':await read_configuration(db,'system'),'writable':True}
 
 # Explicit routes, rather than a catch-all that could mask future protected modules.
-for resource in ['projects','documents','storage','templates','automations']:
+for resource in ['projects','documents','storage','templates']:
     def create_list(kind):
         async def endpoint(f:dict=Depends(filters),db:AsyncSession=Depends(get_db)):
             return await ops.list_resources(db,kind,f)
         return endpoint
     router.add_api_route('/'+resource,create_list(resource),methods=['GET'])
-
-@router.get('/automations/{automation_id}/runs')
-async def automation_runs(automation_id:str,f:dict=Depends(filters),db:AsyncSession=Depends(get_db)):
-    if not await db.get(Automation,automation_id):raise HTTPException(404,'Không tìm thấy automation.')
-    return await ops.list_resources(db,'runs',f,automation_id)
-
-@router.post('/automations/{automation_id}/{action}')
-async def automation_action(automation_id:str,action:Literal['pause','resume'],body:Action,request:Request,user:User=Depends(require_admin),db:AsyncSession=Depends(get_db)):
-    row=(await db.execute(select(Automation).where(Automation.id==automation_id).with_for_update())).scalar_one_or_none()
-    if not row:raise HTTPException(404,'Không tìm thấy automation.')
-    active=action=='resume'
-    if row.is_active==active:raise HTTPException(409,'Automation đã ở trạng thái này.')
-    from app.services.automation.automation_scheduler import automation_scheduler
-    before={'is_active':row.is_active,'next_run_at':row.next_run_at}
-    row.is_active=active
-    row.next_run_at=automation_scheduler.compute_next_run(row.trigger_type,row.cron_expression,row.timezone) if active else None
-    await record_audit(db,user,'AUTOMATION_RESUME' if active else 'AUTOMATION_PAUSE','automation',row.id,before,{'is_active':active,'next_run_at':row.next_run_at},body.reason,request)
-    return {'id':row.id,'is_active':active,'next_run_at':row.next_run_at}
 
 @router.post('/templates/{template_id}/{action}')
 async def template_action(template_id:str,action:Literal['publish','unpublish'],body:Action,request:Request,user:User=Depends(require_admin),db:AsyncSession=Depends(get_db)):

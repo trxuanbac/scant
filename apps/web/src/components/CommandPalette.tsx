@@ -5,22 +5,24 @@ import { useRouter } from "next/navigation";
 import {
   Search,
   Sparkles,
-  FileText,
   Database,
   Layers,
   Settings,
   ShieldCheck,
-  Zap,
-  Download,
-  CheckSquare,
+  LayoutDashboard,
+  FolderKanban,
+  Globe,
+  type LucideIcon,
 } from "lucide-react";
 import { useTranslation } from "@/i18n/I18nContext";
+import { useAuthStore } from "@/stores/useAuthStore";
+import { getWorkspaceNavigation, type WorkspaceRouteKey } from "@/lib/productFocus";
 
 interface CommandItem {
   id: string;
   title: string;
   category: string;
-  icon: any;
+  icon: LucideIcon;
   action: () => void;
 }
 
@@ -29,6 +31,7 @@ export function CommandPalette() {
   const [query, setQuery] = useState("");
   const router = useRouter();
   const { t } = useTranslation();
+  const user = useAuthStore((state) => state.user);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -43,78 +46,27 @@ export function CommandPalette() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, []);
 
-  const commands: CommandItem[] = [
-    {
-      id: "auto-create",
-      title: t("commandPalette.commands.autoCreate"),
-      category: t("commandPalette.categories.ai"),
-      icon: Sparkles,
+  const commandMeta: Record<WorkspaceRouteKey, { title: string; icon: LucideIcon }> = {
+    home: { title: t("navigation.home"), icon: LayoutDashboard },
+    new: { title: t("commandPalette.commands.autoCreate"), icon: Sparkles },
+    projects: { title: t("navigation.projects"), icon: FolderKanban },
+    data: { title: t("navigation.data"), icon: Database },
+    research: { title: t("navigation.research"), icon: Globe },
+    templates: { title: t("navigation.templates"), icon: Layers },
+    settings: { title: t("navigation.settings"), icon: Settings },
+    admin: { title: t("navigation.admin"), icon: ShieldCheck },
+  };
+  const commands: CommandItem[] = getWorkspaceNavigation(Boolean(user?.is_superuser || user?.role === "admin"))
+    .map((route) => ({
+      id: route.key,
+      title: commandMeta[route.key].title,
+      category: t("navigation.workspace"),
+      icon: commandMeta[route.key].icon,
       action: () => {
-        router.push("/projects/new");
+        router.push(route.href);
         setIsOpen(false);
       },
-    },
-    {
-      id: "new-doc",
-      title: t("commandPalette.commands.newDocument"),
-      category: t("commandPalette.categories.documents"),
-      icon: FileText,
-      action: () => {
-        router.push("/projects/new");
-        setIsOpen(false);
-      },
-    },
-    {
-      id: "templates",
-      title: t("commandPalette.commands.templates"),
-      category: t("commandPalette.categories.templates"),
-      icon: Layers,
-      action: () => {
-        router.push("/templates");
-        setIsOpen(false);
-      },
-    },
-    {
-      id: "data-connectors",
-      title: t("commandPalette.commands.dataConnectors"),
-      category: t("commandPalette.categories.data"),
-      icon: Database,
-      action: () => {
-        router.push("/data");
-        setIsOpen(false);
-      },
-    },
-    {
-      id: "automations",
-      title: t("commandPalette.commands.automations"),
-      category: t("commandPalette.categories.automations"),
-      icon: Zap,
-      action: () => {
-        router.push("/automations");
-        setIsOpen(false);
-      },
-    },
-    {
-      id: "admin",
-      title: t("commandPalette.commands.admin"),
-      category: t("commandPalette.categories.admin"),
-      icon: ShieldCheck,
-      action: () => {
-        router.push("/admin");
-        setIsOpen(false);
-      },
-    },
-    {
-      id: "settings",
-      title: t("commandPalette.commands.settings"),
-      category: t("commandPalette.categories.settings"),
-      icon: Settings,
-      action: () => {
-        router.push("/settings");
-        setIsOpen(false);
-      },
-    },
-  ];
+    }));
 
   const filteredCommands = commands.filter(
     (c) =>

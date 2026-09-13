@@ -13,6 +13,38 @@ def remove_diacritics(text: str) -> str:
     return re.sub(r"\s+", " ", cleaned).strip().lower()
 
 
+class AmbiguousSheetError(ValueError):
+    def __init__(self, requested_sheet: str, candidates: List[str]):
+        self.requested_sheet = requested_sheet
+        self.candidates = candidates
+        super().__init__(f"Ambiguous sheet {requested_sheet!r}: {', '.join(candidates)}")
+
+
+def matching_sheet_candidates(requested_sheet: str, available_sheets: List[str]) -> List[str]:
+    """Return all plausible matches; an explicit exact name takes precedence."""
+    requested = requested_sheet.strip()
+    if requested in available_sheets:
+        return [requested]
+    case_matches = [s for s in available_sheets if s.strip().lower() == requested.lower()]
+    if case_matches:
+        return case_matches
+    normalized = remove_diacritics(requested)
+    accent_matches = [s for s in available_sheets if remove_diacritics(s) == normalized]
+    if accent_matches:
+        return accent_matches
+    tokens = set(normalized.split())
+    candidates = []
+    for sheet in available_sheets:
+        sheet_norm = remove_diacritics(sheet)
+        sheet_tokens = set(sheet_norm.split())
+        if normalized and (normalized in sheet_norm or sheet_norm in normalized):
+            candidates.append(sheet)
+        elif tokens and (tokens.issubset(sheet_tokens) or sheet_tokens.issubset(tokens)):
+            if min(len(tokens), len(sheet_tokens)) / max(len(tokens), len(sheet_tokens)) >= 0.5:
+                candidates.append(sheet)
+    return candidates
+
+
 class SheetResolver:
     """
     Dedicated sheet resolver.
@@ -80,6 +112,11 @@ class SheetResolver:
 
         mention = cls.extract_sheet_mention(text or "", available_sheets)
         if mention:
+            candidates = matching_sheet_candidates(mention, available_sheets)
+            if len(candidates) > 1:
+                raise AmbiguousSheetError(mention, candidates)
+            if len(candidates) == 1:
+                return candidates[0], mention
             mention_clean = mention.strip()
             # Exact
             if mention_clean in available_sheets:

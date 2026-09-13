@@ -227,8 +227,10 @@ async def test_workbook_analysis_action_with_google_sync():
 
             assert res["mode"] == "analysis_action"
             assert "1.136" in res["answer"]
-            assert len(res["actions"]) >= 1
-            action = res["actions"][0]
+            assert res["actions"] == []
+            assert len(res["pending_actions"]) >= 1
+            action = res["pending_actions"][0]
+            assert action["requires_confirmation"] is True
             assert action["type"] == "HIGHLIGHT_CELLS"
             # Must point to row 36 and column F (Giá tiền)
             assert action["cells"] == ["F36"]
@@ -244,9 +246,9 @@ async def test_workbook_analysis_action_with_google_sync():
             # Google sync check
             gs = res.get("google_sync", {})
             assert gs.get("is_google_sheet") is True
-            assert gs.get("synced_to_google_sheets") is True
-            assert gs.get("verified_on_google_sheets") is True
-            assert gs.get("google_sync_error") is None
+            assert gs.get("synced_to_google_sheets") is False
+            assert gs.get("verified_on_google_sheets") is False
+            assert gs.get("google_sync_attempted") is False
 
     finally:
         if os.path.exists(tmp_path):

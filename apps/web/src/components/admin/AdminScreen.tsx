@@ -19,7 +19,6 @@ const modules: Record<string, Module> = {
   documents:{title:'Tài liệu',endpoint:'documents',columns:['title','owner_email','project_id','document_type','file_type','file_size','is_parsed','created_at'],filters:['user_id','project_id'],dates:true,sorts:['created_at','title','file_size'],note:'Metadata vận hành. Nội dung tài liệu và đường dẫn tải file không được cung cấp cho quản trị viên mặc định.'},
   storage:{title:'Lưu trữ',endpoint:'storage',columns:['original_name','owner_email','file_type','file_size','is_parsed','created_at'],filters:['user_id','project_id'],dates:true,sorts:['created_at','file_size']},
   templates:{title:'Mẫu báo cáo',endpoint:'templates',columns:['name','category','owner_email','version','visibility','is_system','usage_count','updated_at'],filters:['user_id'],dates:true,sorts:['created_at','name','usage_count']},
-  automations:{title:'Tự động hóa',endpoint:'automations',columns:['name','owner_email','trigger_type','is_active','last_run_at','next_run_at'],filters:['status','user_id'],dates:true,sorts:['created_at','name','next_run_at'],note:'Tạm dừng ngăn lần chạy lịch tiếp theo; không hủy lần chạy đang diễn ra.'},
   integrations:{title:'Tích hợp',endpoint:'integrations',columns:['name','category','status','requests','failures','average_latency_ms','last_observed_at'],dates:true,sorts:['name','category','status','requests'],note:'Đã cấu hình không đồng nghĩa đang kết nối tốt. Không trả về API key hoặc token OAuth.'},
   providers:{title:'Nhà cung cấp',endpoint:'providers',columns:['name','category','configured','supported','health','requests','failures','average_latency_ms'],dates:true,sorts:['name','category','status','requests']},
   payments:{title:'Thanh toán',endpoint:'payments',columns:['id','user_id','plan','amount','currency','provider','status','created_at','paid_at'],filters:['status','plan','user_id'],dates:true,sorts:['created_at','status','plan']},
@@ -56,7 +55,6 @@ export function AdminScreen({path}:{path:string[]}) {
   if(detail && base==='users')endpoint=`users/${id}`;
   if(detail && base==='ai-jobs')endpoint=`jobs/${id}`;
   if(detail && base==='payments')endpoint=`payments/${id}`;
-  if(detail && base==='automations')endpoint=`automations/${id}/runs`;
   const q=new URLSearchParams(params.toString());q.delete('tab');
   if(!q.has('page_size') && !['overview','system/health','ai-config','settings','search'].includes(endpoint))q.set('page_size','25');
   const query=q.toString();
@@ -73,7 +71,6 @@ export function AdminScreen({path}:{path:string[]}) {
     if(base==='projects')return <Link className="underline" href={`/admin/projects/${row.id}`}>Chi tiết</Link>;
     if(base==='payments')return <Link className="underline" href={`/admin/payments/${row.id}`}>Chi tiết</Link>;
     if(base==='quotas')return <><button onClick={()=>mutate('Điều chỉnh hạn mức','Đây là hạn mức riêng cho tài khoản, được lưu cùng lý do và giá trị trước/sau.',`quotas/${row.user_id}`,{},'PATCH',[{key:'monthly_token_limit',label:'Giới hạn token/tháng',type:'number',value:String(row.monthly_token_limit)},{key:'monthly_cost_limit_usd',label:'Ngân sách USD/tháng',type:'number',value:String(row.monthly_cost_limit_usd)}])}>Điều chỉnh</button><button onClick={()=>mutate('Đặt lại bộ đếm quota','Lượng sử dụng trong bộ đếm được đặt về 0; lịch sử usage vẫn được giữ để truy vết.',`quotas/${row.user_id}`,{reset:true},'PATCH')}>Đặt lại</button></>;
-    if(base==='automations')return <><Link className="underline" href={`/admin/automations/${row.id}`}>Lịch sử chạy</Link><button onClick={()=>mutate(row.is_active?'Tạm dừng':'Tiếp tục','Không chạy lại hoặc hủy lần thực thi đang diễn ra.',`automations/${row.id}/${row.is_active?'pause':'resume'}`)}>{row.is_active?'Tạm dừng':'Tiếp tục'}</button></>;
     if(base==='templates')return <><Link className="underline" href={`/admin/templates/${row.id}`}>Kiểm tra mẫu</Link>{row.is_public && (!row.is_system || session?.is_superuser) && <button onClick={()=>mutate('Ẩn mẫu','Ngừng công khai mẫu này.',`templates/${row.id}/unpublish`)}>Ẩn mẫu</button>}{!row.is_public && row.is_system && session?.is_superuser && <button onClick={()=>mutate('Phát hành mẫu hệ thống','Mẫu hệ thống sẽ được công khai. Không áp dụng cho mẫu riêng của người dùng.',`templates/${row.id}/publish`)}>Phát hành</button>}</>;
     return null;
   };
@@ -94,7 +91,7 @@ export function AdminScreen({path}:{path:string[]}) {
       {data.provider_status && <p role="status" className="admin-panel p-3 text-sm">Nhà cung cấp thanh toán: {display(data.provider_status)}. {display(data.read_only_reason)}</p>}
       {data.summary && <RecordView data={data.summary}/>}
       {data.limitations && <RecordView data={data.limitations}/>}
-      <DataTable rows={rows(data.items)} columns={detail && base==='automations'?['id','status','trigger_source','started_at','finished_at','duration_ms','retry_count','failed_step'].map(key=>({key})):columns} actions={!detail && ['users','ai-jobs','quotas','payments','projects','templates','automations'].includes(base)?tableActions:undefined}/>
+      <DataTable rows={rows(data.items)} columns={columns} actions={!detail && ['users','ai-jobs','quotas','payments','projects','templates'].includes(base)?tableActions:undefined}/>
       <Pagination total={Number(data.total || 0)} page={Number(data.page || 1)} size={Number(data.page_size || 25)} sorts={!detail?pageConfig?.sorts:undefined}/>
     </>}
     </>}

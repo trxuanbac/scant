@@ -10,6 +10,9 @@ import openpyxl
 from openpyxl.styles import PatternFill
 import pandas as pd
 
+from app.services.data.sheet_analysis_service import SheetAnalysisService
+from app.services.data.sheet_resolvers import AmbiguousSheetError, matching_sheet_candidates
+
 
 def col_letter_to_index(col_letter: str) -> int:
     """Converts Excel column letters (e.g. 'A', 'H', 'AA') to 1-based index (e.g. 1, 8, 27)."""
@@ -149,6 +152,9 @@ def resolve_sheet_name_in_wb(requested_sheet: Optional[str], available_sheets: L
     if not requested_sheet:
         return available_sheets[0]
 
+    candidates = matching_sheet_candidates(requested_sheet, available_sheets)
+    if len(candidates) > 1:
+        raise AmbiguousSheetError(requested_sheet, candidates)
     req_clean = requested_sheet.strip()
 
     # 1. Exact match
@@ -467,13 +473,14 @@ class SpreadsheetQueryEngine:
                         sample_values.append(value)
                         if isinstance(value, (int, float)) and not isinstance(value, bool):
                             numeric_count += 1
+                semantic_type = SheetAnalysisService.infer_column_type(pd.Series(sample_values), name)
                 columns.append({
                     "name": name,
                     "letter": letter,
                     "index": col_idx,
                     "header_row": header_row,
                     "sample_values": sample_values[:5],
-                    "type": "numeric" if non_empty_count and numeric_count >= max(1, non_empty_count * 0.6) else "text",
+                    "type": "id_code" if semantic_type == "id_code" else ("numeric" if non_empty_count and numeric_count >= max(1, non_empty_count * 0.6) else "text"),
                 })
 
             records: List[Dict[str, Any]] = []
@@ -620,6 +627,11 @@ class SpreadsheetQueryEngine:
         col = cls.find_column(file_path, resolved_sheet, column_name)
         if not col.get("found"):
             return {"operation": "AGGREGATE", "sheet": resolved_sheet, "error": f"Không tìm thấy cột '{column_name}'.", "evidence": col["evidence"]}
+        column_schema = next((item for item in _columns if item["name"] == col["name"]), {})
+        if column_schema.get("type") == "id_code" and op.lower() not in {"count", "đếm", "dem"}:
+            return {"operation": "AGGREGATE", "sheet": resolved_sheet, "column": col,
+                    "value": None, "error": "Cột định danh chỉ hỗ trợ đếm, không tổng hợp số học.",
+                    "evidence": col["evidence"]}
         values = [cls._coerce_number(row.get(col["name"])) for row in records]
         numbers = [v for v in values if v is not None]
         op_key = op.lower()

@@ -66,3 +66,20 @@ export function groupDatasetsForDisplay(datasets) {
     };
   });
 }
+
+export function filterDatasetGroups(groups, query) {
+  const normalize = (value) => String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLocaleLowerCase("vi");
+  const needle = normalize(query);
+  if (!needle) return groups || [];
+  return (groups || []).filter((group) =>
+    [group.primary, ...(group.variants || [])].some((dataset) =>
+      normalize(dataset?.original_name).includes(needle)
+    )
+  );
+}

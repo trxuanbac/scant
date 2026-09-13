@@ -4,21 +4,13 @@ import { useState } from "react";
 import {
   Sparkles,
   Send,
-  CheckCircle2,
-  AlertTriangle,
   RefreshCw,
-  Copy,
   PlusCircle,
-  FileCheck,
   ShieldCheck,
   Bot,
-  User,
-  Wand2,
   ArrowDownToLine,
-  Mic,
 } from "lucide-react";
 import { api } from "@/lib/api";
-import { VoiceRecorderModal } from "@/components/VoiceRecorderModal";
 
 interface AiAssistantPanelProps {
   projectId: string;
@@ -41,7 +33,6 @@ export function AiAssistantPanel({
   onApplyDraft,
 }: AiAssistantPanelProps) {
   const [panelMode, setPanelMode] = useState<"writer" | "copilot">("writer");
-  const [isVoiceOpen, setIsVoiceOpen] = useState(false);
 
   // Writer Mode State
   const [instruction, setInstruction] = useState("");
@@ -130,7 +121,7 @@ export function AiAssistantPanel({
           actionPayload: res.payload,
         },
       ]);
-    } catch (err: any) {
+    } catch {
       setChatMessages((prev) => [
         ...prev,
         {
@@ -410,14 +401,6 @@ export function AiAssistantPanel({
                 className="h-9 flex-1 rounded-lg border border-slate-200 bg-slate-50 px-3 text-xs outline-none focus:border-indigo-500 focus:bg-white"
               />
               <button
-                type="button"
-                onClick={() => setIsVoiceOpen(true)}
-                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-700 transition hover:bg-slate-200"
-                title="Nhập bằng giọng nói (AI Voice)"
-              >
-                <Mic className="h-4 w-4 text-rose-600" />
-              </button>
-              <button
                 type="submit"
                 disabled={isChatting || !chatInput.trim()}
                 className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-indigo-600 text-white transition-colors hover:bg-indigo-700 disabled:opacity-50"
@@ -427,13 +410,6 @@ export function AiAssistantPanel({
             </form>
           </div>
 
-          <VoiceRecorderModal
-            isOpen={isVoiceOpen}
-            onClose={() => setIsVoiceOpen(false)}
-            onTranscriptComplete={(transcript) => {
-              setChatInput(transcript);
-            }}
-          />
         </div>
       )}
     </div>

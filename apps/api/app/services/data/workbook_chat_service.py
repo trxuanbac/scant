@@ -2,6 +2,7 @@ import json
 import logging
 import os
 import re
+import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -11,7 +12,7 @@ from app.services.ai.types import AIRequest, AITaskType
 from app.services.data.action_engine import spreadsheet_action_engine
 from app.services.data.analysis_intent_parser import analysis_intent_parser
 from app.services.data.google_sheets_service import google_sheets_service, index_to_col_letter
-from app.services.data.sheet_resolvers import column_resolver, remove_diacritics, sheet_resolver
+from app.services.data.sheet_resolvers import column_resolver, remove_diacritics, sheet_resolver, matching_sheet_candidates
 from app.services.data.spreadsheet_query_engine import (
     SpreadsheetQueryEngine,
     col_index_to_letter,
@@ -208,15 +209,19 @@ class WorkbookChatService:
             f"Tìm thấy **{len(rows)}** dòng có **{col_name} {parsed_filter['operator']} {value_text}** trên sheet **{filtered.get('sheet', sheet_name)}**.\n\n"
             + "\n".join([header, sep, *body])
         )
-        actions = []
-        if highlight and cell_addresses:
-            actions.append({
-                "type": "HIGHLIGHT_CELLS",
+        pending_actions = []
+        if highlight and rows:
+            pending_actions.append({
+                "id": str(uuid.uuid4()),
+                "type": "HIGHLIGHT_ROWS",
                 "sheet": filtered.get("sheet", sheet_name),
+                "rows": [row["row_number"] for row in rows],
                 "cells": cell_addresses,
                 "color": "#FEF08A",
-                "autoScrollTo": cell_addresses[0],
+                "requires_confirmation": True,
+                "label": f"Tô vàng {len(rows)} dòng",
             })
+            answer += "\n\nHãy xác nhận để tô vàng các dòng này."
         return {
             "intent": "filter_rows",
             "answer": answer,
@@ -227,8 +232,8 @@ class WorkbookChatService:
                 *cls._build_source_blocks(filtered.get("evidence")),
             ],
             "result": filtered,
-            "actions": actions,
-            "pending_actions": [],
+            "actions": [],
+            "pending_actions": pending_actions,
             "follow_up_context": {"result_set": {"operation": "FILTER_ROWS", "row_count": len(rows), "column": col_name}},
             "status_steps": [f"Đang đọc {sheet_name}...", "Đang nhận diện điều kiện lọc...", "Đang lọc dữ liệu thật..."],
         }
@@ -455,23 +460,26 @@ class WorkbookChatService:
             return None
         if cls._is_probably_column_phrase(candidate):
             return None
-        for sheet in available_sheets:
-            if sheet == candidate or remove_diacritics(sheet) == remove_diacritics(candidate):
-                return None
-        suggested = cls._nearest_sheet(candidate, available_sheets)
-        if suggested and cls._compact_text(suggested) == cls._compact_text(candidate):
-            return {
-                "answer": f"Không tìm thấy sheet **{candidate}**. Bạn có muốn dùng **{suggested}** không?",
-                "context": {"sheet": None, "ranges": []},
-                "evidence": {"sheet": None, "ranges": [], "operation": "RESOLVE_SHEET", "rowCount": 0},
-                "blocks": [],
-                "result": {},
-                "actions": [],
-                "pending_actions": [],
-                "error": {"code": "SHEET_NOT_FOUND", "requested_sheet": candidate, "suggested_sheet": suggested},
-                "status_steps": ["Đang kiểm tra danh sách sheet...", "Không tìm thấy sheet được yêu cầu."],
-            }
-        return None
+        candidates = matching_sheet_candidates(candidate, available_sheets)
+        if len(candidates) == 1:
+            return None
+        # Generic references describe the active sheet rather than naming one.
+        if re.match(r"^(nay|do|nao|hien tai|dang mo|dang chon)\b", cls._norm_text(candidate)):
+            return None
+        if not cls._candidate_has_sheet_marker(message):
+            return None
+        ambiguous = len(candidates) > 1
+        return {
+            "answer": (f"Tên sheet **{candidate}** khớp nhiều sheet: {', '.join(candidates)}. Hãy chọn tên chính xác."
+                       if ambiguous else f"Không tìm thấy sheet **{candidate}**. Hãy chọn một sheet: {', '.join(available_sheets)}."),
+            "context": {"sheet": None, "ranges": []},
+            "evidence": {"sheet": None, "ranges": [], "operation": "RESOLVE_SHEET", "rowCount": 0},
+            "blocks": [], "result": {}, "actions": [], "pending_actions": [],
+            "error": {"code": "SHEET_AMBIGUOUS" if ambiguous else "SHEET_NOT_FOUND",
+                      "requested_sheet": candidate, "candidates": candidates or available_sheets,
+                      "suggested_sheet": cls._nearest_sheet(candidate, available_sheets) if not ambiguous else None},
+            "status_steps": ["Cần xác định sheet trước khi tiếp tục."],
+        }
 
     @classmethod
     def _build_source_blocks(cls, evidence: Optional[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -549,7 +557,7 @@ class WorkbookChatService:
             ],
             "result": {"operation": operation, "sheet_results": sheet_results},
             "actions": [],
-            "pending_actions": [],
+            "pending_actions": [action for item in sheet_results for action in item.get("pending_actions", [])],
             "analysis_history_item": {"prompt": prompt, "sheet": evidence["sheet"], "ranges": ranges, "operation": operation},
             "status_steps": ["Đang đọc workbook...", f"Đang phân tích {len(sheet_results)} sheet...", "Đang tổng hợp kết quả..."],
         }
@@ -580,6 +588,10 @@ class WorkbookChatService:
             finally:
                 wb_temp.close()
 
+        explicit_sheet_error = cls._explicit_sheet_error_if_needed(prompt, available_sheets)
+        if explicit_sheet_error:
+            return explicit_sheet_error
+
         # Handle multi-sheet / workbook scope
         scope_type = (scope or {}).get("type")
         if scope_type in {"workbook", "sheets"}:
@@ -600,6 +612,7 @@ class WorkbookChatService:
                     "answer": one.get("answer"),
                     "evidence": one.get("evidence"),
                     "result": one.get("result"),
+                    "pending_actions": one.get("pending_actions", []),
                 })
             operation = "WORKBOOK_ANALYSIS" if scope_type == "workbook" else "MULTI_SHEET_ANALYSIS"
             return cls._merge_scoped_analysis_results(prompt, sheet_results, operation)
@@ -652,9 +665,8 @@ class WorkbookChatService:
 
         # 4. Dispatch by Intent
         if intent == "CLEAR_HIGHLIGHT":
-            spreadsheet_action_engine.clear_highlights(file_path, target_sheet)
             title = "Xóa màu đánh dấu"
-            answer = f"Đã xóa toàn bộ màu đánh dấu trên sheet **{target_sheet}**."
+            answer = f"Hãy xác nhận để xóa màu đánh dấu trên sheet **{target_sheet}**."
             evidence = {"sheet": target_sheet, "ranges": [], "operation": "CLEAR_HIGHLIGHTS", "rowCount": 0}
             actions.append({"type": "CLEAR_HIGHLIGHTS", "sheet": target_sheet})
             result_type = "action"
@@ -955,37 +967,18 @@ class WorkbookChatService:
         }
 
         spreadsheet_id = google_sheets_service.extract_spreadsheet_id(data_source_url)
-        if spreadsheet_id and unique_highlight_cells:
+        if spreadsheet_id:
             google_sync_info["is_google_sheet"] = True
             google_sync_info["spreadsheet_id"] = spreadsheet_id
-            google_sync_info["google_sync_attempted"] = True
 
-            access_token, token_err = await google_sheets_service.get_valid_access_token(
-                user=user,
-                db=db,
-                explicit_token=google_access_token,
-            )
-
-            if access_token:
-                sync_res = await google_sheets_service.highlight_cells(
-                    spreadsheet_id=spreadsheet_id,
-                    sheet_name=target_sheet,
-                    cell_addresses=unique_highlight_cells,
-                    color_hex=color,
-                    access_token=access_token,
-                    session_id=conv_id,
-                )
-                google_sync_info["sheet_id"] = sync_res.get("sheet_id", 0)
-                google_sync_info["sheet_name"] = sync_res.get("sheet_name", target_sheet)
-                google_sync_info["synced_to_google_sheets"] = sync_res.get("synced_to_google_sheets", False)
-                google_sync_info["verified_on_google_sheets"] = sync_res.get("verified_on_google_sheets", False)
-                google_sync_info["google_sync_error"] = sync_res.get("error")
+        pending_actions = []
+        immediate_actions = []
+        for action in actions:
+            if action.get("type") in {"HIGHLIGHT_CELLS", "HIGHLIGHT_ROWS", "CLEAR_HIGHLIGHTS"}:
+                pending_actions.append({**action, "id": str(uuid.uuid4()),
+                                        "requires_confirmation": True, "label": title})
             else:
-                google_sync_info["synced_to_google_sheets"] = False
-                google_sync_info["verified_on_google_sheets"] = False
-                google_sync_info["google_sync_error"] = (
-                    "Ứng dụng hiện chưa có quyền chỉnh sửa Google Sheets. Vui lòng cấp quyền chỉnh sửa để đồng bộ đánh dấu trực tiếp."
-                )
+                immediate_actions.append(action)
 
         history_item = {
             "prompt": prompt,
@@ -1017,8 +1010,8 @@ class WorkbookChatService:
                 *cls._build_source_blocks(evidence),
             ],
             "result": result,
-            "actions": actions,
-            "pending_actions": [],
+            "actions": immediate_actions,
+            "pending_actions": pending_actions,
             "google_sync": google_sync_info,
             "analysis_history_item": history_item,
             "status_steps": [f"Đang đọc {evidence.get('sheet', target_sheet)}...", "Đang tính toán trên dữ liệu thật...", "Đang cập nhật Workspace..."],
@@ -1170,7 +1163,21 @@ class WorkbookChatService:
         return "WORKBOOK_DATA"
 
     @classmethod
-    async def chat(
+    async def chat(cls, *args, **kwargs) -> Dict[str, Any]:
+        response = await cls._chat(*args, **kwargs)
+        pending = list(response.get("pending_actions") or [])
+        navigation = []
+        for action in response.get("actions") or []:
+            if action.get("type") in {"HIGHLIGHT_CELLS", "HIGHLIGHT_ROWS", "CLEAR_HIGHLIGHTS"}:
+                pending.append({**action, "id": str(uuid.uuid4()), "requires_confirmation": True})
+            else:
+                navigation.append(action)
+        response["actions"] = navigation
+        response["pending_actions"] = pending
+        return response
+
+    @classmethod
+    async def _chat(
         cls,
         file_path: str,
         message: str,
@@ -1194,6 +1201,10 @@ class WorkbookChatService:
                     wb_temp.close()
                 except Exception as err:
                     logger.debug("Failed to read sheetnames from %s: %s", file_path, err)
+
+        explicit_sheet_error = cls._explicit_sheet_error_if_needed(message, available_sheets)
+        if explicit_sheet_error:
+            return explicit_sheet_error
 
         # 2. Intent Classification for Conversational & Metadata Queries
         intent = cls.classify_intent(message)
@@ -1395,7 +1406,7 @@ class WorkbookChatService:
             cell_addresses = [c["address"] for c in cached_cells]
             first_cell = cell_addresses[0] if cell_addresses else None
             return {
-                "answer": f"Tôi đã đánh dấu màu vàng {len(cell_addresses)} ô từ kết quả phân tích trước trên sheet **{target_sheet}**.",
+                "answer": f"Tôi đề xuất đánh dấu màu vàng {len(cell_addresses)} ô từ kết quả phân tích trước trên sheet **{target_sheet}**.",
                 "context": {
                     "sheet": target_sheet,
                     "ranges": session.get("last_ranges", []),
@@ -1439,7 +1450,7 @@ class WorkbookChatService:
         if is_clear_action:
             session["last_matched_cells"] = []
             return {
-                "answer": f"Đã xóa toàn bộ đánh dấu màu trên bảng tính **{target_sheet}**.",
+                "answer": f"Đề xuất xóa toàn bộ đánh dấu màu trên bảng tính **{target_sheet}**.",
                 "context": {"sheet": target_sheet},
                 "evidence": {"sheet": target_sheet, "ranges": [], "operation": "CLEAR_HIGHLIGHTS", "rowCount": 0},
                 "blocks": [],
@@ -1519,43 +1530,6 @@ class WorkbookChatService:
                     "pending_actions": [],
                     "follow_up_context": {"entity": last_entity},
                     "status_steps": [f"Đang đọc {target_sheet}...", "Đang lấy ô liên quan..."],
-                }
-
-        # 3b. Pending UI action: highlight rows below/above a numeric threshold.
-        if any(k in msg_norm for k in ["to vang", "boi vang", "highlight", "danh dau"]) and any(k in msg_norm for k in ["duoi", "nho hon", "thap hon", "tren", "lon hon", "cao hon"]):
-            target_col_name = cls._column_name_from_message(file_path, target_sheet, message)
-            threshold_match = re.search(r"(\d+(?:[\.,]\d+)?)\s*(trieu|triệu|m|k|nghin|ngàn|ngan)?", msg_lower)
-            if target_col_name and threshold_match:
-                raw_number = float(threshold_match.group(1).replace(",", "."))
-                unit = threshold_match.group(2) or ""
-                threshold = raw_number * 1_000_000 if unit in ["trieu", "triệu", "m"] else raw_number * 1_000 if unit in ["k", "nghin", "ngàn", "ngan"] else raw_number
-                operator = "<" if any(k in msg_norm for k in ["duoi", "nho hon", "thap hon"]) else ">"
-                filtered = spreadsheet_query_engine.filter_rows(file_path, target_sheet, target_col_name, operator, threshold)
-                rows = [row["row_number"] for row in filtered.get("rows", [])]
-                pending_action = {
-                    "id": f"highlight_rows_{target_sheet}_{target_col_name}_{operator}_{int(threshold)}",
-                    "type": "HIGHLIGHT_ROWS",
-                    "sheet": target_sheet,
-                    "rows": rows,
-                    "color": "#FEF08A",
-                    "requires_confirmation": True,
-                    "label": f"Tô vàng {len(rows)} dòng",
-                }
-                session["last_query_result"] = filtered
-                session["last_analysis_result"] = filtered
-                return {
-                    "answer": f"Đã tìm thấy **{len(rows)} dòng** có **{target_col_name} {operator} {cls._format_number(threshold)}**. Bạn có thể xác nhận để tô vàng các dòng này.",
-                    "context": {"sheet": target_sheet, "ranges": filtered.get("evidence", {}).get("ranges", [])},
-                    "evidence": filtered.get("evidence"),
-                    "blocks": [
-                        {"type": "kpi", "title": "Dòng phù hợp", "value": len(rows), "subtext": f"{target_col_name} {operator} {cls._format_number(threshold)}"},
-                        *cls._build_source_blocks(filtered.get("evidence")),
-                    ],
-                    "result": filtered,
-                    "actions": [],
-                    "pending_actions": [pending_action],
-                    "follow_up_context": {"entity": None},
-                    "status_steps": [f"Đang đọc {target_sheet}...", "Đang lọc dữ liệu...", "Đang chuẩn bị hành động cần xác nhận..."],
                 }
 
         # 3c. Compare named groups using detected categorical and numeric columns.
@@ -1818,7 +1792,7 @@ class WorkbookChatService:
                         f"Trên sheet **{target_sheet}**, phát hiện chính xác **{total_cnt} lượt xuất hiện** của "
                         f"**'{candidate_search}'** (nằm trên **{unique_rows} dòng**):{breakdown_text}\n"
                         f"• Các ô phát hiện: {cells_sample}{'...' if len(search_res.get('matched_cells', [])) > 8 else ''}\n"
-                        f"✨ Đã tự động đánh dấu vàng các ô liên quan trên bảng tính."
+                        f"✨ Có thể tô vàng các ô liên quan sau khi bạn xác nhận."
                     )
                 else:
                     answer = f"Không tìm thấy từ khóa **'{candidate_search}'** trong dữ liệu sheet **{target_sheet}**."
@@ -2048,7 +2022,7 @@ class WorkbookChatService:
             else:
                 answer = f"Đã kiểm tra vùng **{ranges_str}** trên sheet **{target_sheet}**.\n\n⚠️ Phát hiện **{missing_count} ô trống / thiếu dữ liệu** ({', '.join(cell_addresses[:15])}{'...' if len(cell_addresses) > 15 else ''})."
                 if should_auto_highlight:
-                    answer += f"\n\n✨ Đã đánh dấu màu cam các ô trống này trên bảng tính."
+                    answer += f"\n\n✨ Có thể tô cam các ô trống này sau khi bạn xác nhận."
 
             actions = []
             if should_auto_highlight and cell_addresses:

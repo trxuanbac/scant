@@ -5,7 +5,6 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.models.entities import User, Project, UploadedFile
-from app.repositories.project_repo import project_repo, file_repo
 from app.api.deps import get_current_user, get_current_user_optional
 from app.services.data.data_engine import data_engine
 from app.services.data.spreadsheet_visual_engine import spreadsheet_visual_engine
@@ -18,6 +17,10 @@ from app.services.data.google_sheets_service import google_sheets_service
 from app.services.data.url_dataset_loader import url_dataset_loader
 from app.core.config import settings
 import hashlib
+from uuid import uuid4
+from urllib.parse import urlencode
+from app.services.storage.signed_url_service import signed_url_service
+from app.services.data.data_access import owned_dataset, safe_dataset_name, save_dataset, validated_highlight
 import json
 from fastapi.responses import FileResponse
 
@@ -60,7 +63,7 @@ async def preview_uploaded_dataset(
 
     if has_file and file is not None:
         filename = file.filename or "dataset"
-        contents = await file.read()
+        contents = await file.read(50 * 1024 * 1024 + 1)
         mime_type = file.content_type or "application/octet-stream"
         source_mode = "file"
     else:
@@ -83,10 +86,9 @@ async def preview_uploaded_dataset(
         raise HTTPException(status_code=400, detail="Tệp vượt quá giới hạn dung lượng 50MB.")
 
     user_tag = str(current_user.id) if current_user else "guest"
-    file_hash = hashlib.sha256(contents).hexdigest()
-    tmp_path = settings.UPLOAD_DIR / f"preview_{user_tag}_{file_hash[:12]}_{filename}"
-    with open(tmp_path, "wb") as out:
-        out.write(contents)
+
+    filename = safe_dataset_name(filename)
+    tmp_path = save_dataset(contents, filename, user_tag)
 
     try:
         profile = data_engine.profile_dataset(str(tmp_path), sheet_range=sheet_range)
@@ -151,21 +153,17 @@ async def analyze_specific_sheet(
     target_path = None
     user_tag = str(current_user.id) if current_user else "guest"
     if file_id:
-        f = await file_repo.get(db, file_id)
+        f = await owned_dataset(db, file_id, current_user)
         if f and Path(f.file_path).exists():
             target_path = f.file_path
     elif file is not None and bool(file.filename and file.filename.strip()):
-        contents = await file.read()
-        file_hash = hashlib.sha256(contents).hexdigest()
-        target_path = str(settings.UPLOAD_DIR / f"preview_{user_tag}_{file_hash[:12]}_{file.filename}")
-        with open(target_path, "wb") as out:
-            out.write(contents)
+        contents = await file.read(50 * 1024 * 1024 + 1)
+
+        target_path = save_dataset(contents, file.filename, user_tag)
     elif data_source_url and data_source_url.strip():
         contents, filename, mime_type = await url_dataset_loader.load(data_source_url.strip())
-        file_hash = hashlib.sha256(contents).hexdigest()
-        target_path = str(settings.UPLOAD_DIR / f"preview_{user_tag}_{file_hash[:12]}_{filename}")
-        with open(target_path, "wb") as out:
-            out.write(contents)
+
+        target_path = save_dataset(contents, filename, user_tag)
 
     if not target_path or not Path(target_path).exists():
         raise HTTPException(status_code=400, detail="Không tìm thấy tệp dữ liệu để phân tích sheet.")
@@ -197,21 +195,17 @@ async def chat_with_workbook(
     target_path = None
     user_tag = str(current_user.id) if current_user else "guest"
     if file_id:
-        f = await file_repo.get(db, file_id)
+        f = await owned_dataset(db, file_id, current_user)
         if f and Path(f.file_path).exists():
             target_path = f.file_path
     elif file is not None and bool(file.filename and file.filename.strip()):
-        contents = await file.read()
-        file_hash = hashlib.sha256(contents).hexdigest()
-        target_path = str(settings.UPLOAD_DIR / f"preview_{user_tag}_{file_hash[:12]}_{file.filename}")
-        with open(target_path, "wb") as out:
-            out.write(contents)
+        contents = await file.read(50 * 1024 * 1024 + 1)
+
+        target_path = save_dataset(contents, file.filename, user_tag)
     elif data_source_url and data_source_url.strip():
         contents, filename, mime_type = await url_dataset_loader.load(data_source_url.strip())
-        file_hash = hashlib.sha256(contents).hexdigest()
-        target_path = str(settings.UPLOAD_DIR / f"preview_{user_tag}_{file_hash[:12]}_{filename}")
-        with open(target_path, "wb") as out:
-            out.write(contents)
+
+        target_path = save_dataset(contents, filename, user_tag)
 
     if not target_path or not Path(target_path).exists():
         raise HTTPException(status_code=400, detail="Không tìm thấy tệp dữ liệu bảng tính để trò chuyện.")
@@ -228,7 +222,7 @@ async def chat_with_workbook(
             message=message,
             sheet_name=sheet_name,
             selected_range=selected_range,
-            conversation_id=conversation_id,
+            conversation_id=f"{user_tag}:{hashlib.sha256(Path(target_path).read_bytes()).hexdigest()}:{conversation_id or uuid4().hex}",
             scope=parsed_scope,
         )
         return {"ok": True, **response}
@@ -253,21 +247,17 @@ async def run_workbook_analysis_action(
     target_path = None
     user_tag = str(current_user.id) if current_user else "guest"
     if file_id:
-        f = await file_repo.get(db, file_id)
+        f = await owned_dataset(db, file_id, current_user)
         if f and Path(f.file_path).exists():
             target_path = f.file_path
     elif file is not None and bool(file.filename and file.filename.strip()):
-        contents = await file.read()
-        file_hash = hashlib.sha256(contents).hexdigest()
-        target_path = str(settings.UPLOAD_DIR / f"preview_{user_tag}_{file_hash[:12]}_{file.filename}")
-        with open(target_path, "wb") as out:
-            out.write(contents)
+        contents = await file.read(50 * 1024 * 1024 + 1)
+
+        target_path = save_dataset(contents, file.filename, user_tag)
     elif data_source_url and data_source_url.strip():
         contents, filename, mime_type = await url_dataset_loader.load(data_source_url.strip())
-        file_hash = hashlib.sha256(contents).hexdigest()
-        target_path = str(settings.UPLOAD_DIR / f"preview_{user_tag}_{file_hash[:12]}_{filename}")
-        with open(target_path, "wb") as out:
-            out.write(contents)
+
+        target_path = save_dataset(contents, filename, user_tag)
 
     if not target_path or not Path(target_path).exists():
         raise HTTPException(status_code=400, detail="Không tìm thấy tệp dữ liệu để chạy phân tích.")
@@ -284,7 +274,7 @@ async def run_workbook_analysis_action(
             prompt=prompt,
             sheet_name=sheet_name,
             selected_range=selected_range,
-            conversation_id=conversation_id,
+            conversation_id=f"{user_tag}:{hashlib.sha256(Path(target_path).read_bytes()).hexdigest()}:{conversation_id or uuid4().hex}",
             scope=parsed_scope,
             highlight_color=highlight_color,
             data_source_url=data_source_url,
@@ -313,27 +303,23 @@ async def cross_file_compare(
 
     path1 = None
     if file_id_1:
-        f1 = await file_repo.get(db, file_id_1)
+        f1 = await owned_dataset(db, file_id_1, current_user)
         if f1 and Path(f1.file_path).exists():
             path1 = f1.file_path
     elif file_1 and file_1.filename:
-        c1 = await file_1.read()
-        h1 = hashlib.sha256(c1).hexdigest()
-        path1 = str(settings.UPLOAD_DIR / f"cmp_{user_tag}_{h1[:10]}_{file_1.filename}")
-        with open(path1, "wb") as out:
-            out.write(c1)
+        c1 = await file_1.read(50 * 1024 * 1024 + 1)
+
+        path1 = save_dataset(c1, file_1.filename, user_tag)
 
     path2 = None
     if file_id_2:
-        f2 = await file_repo.get(db, file_id_2)
+        f2 = await owned_dataset(db, file_id_2, current_user)
         if f2 and Path(f2.file_path).exists():
             path2 = f2.file_path
     elif file_2 and file_2.filename:
-        c2 = await file_2.read()
-        h2 = hashlib.sha256(c2).hexdigest()
-        path2 = str(settings.UPLOAD_DIR / f"cmp_{user_tag}_{h2[:10]}_{file_2.filename}")
-        with open(path2, "wb") as out:
-            out.write(c2)
+        c2 = await file_2.read(50 * 1024 * 1024 + 1)
+
+        path2 = save_dataset(c2, file_2.filename, user_tag)
 
     if not path1 or not path2:
         raise HTTPException(status_code=400, detail="Vui lòng cung cấp đầy đủ 2 file để đối chiếu.")
@@ -356,9 +342,10 @@ async def cross_file_compare(
 async def undo_spreadsheet_action(
     session_id: str = Form("default"),
     spreadsheet_id: Optional[str] = Form(None),
-    current_user: Optional[User] = Depends(get_current_user_optional),
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    session_id = f"{current_user.id}:{session_id}"
     res = spreadsheet_action_engine.undo_last_action(session_id=session_id)
     # Also attempt Google Sheets undo if user token is available
     token, _ = await google_sheets_service.get_valid_access_token(user=current_user, db=db)
@@ -389,14 +376,7 @@ async def retry_google_sheets_sync(
             "requires_auth": True,
         }
 
-    cell_list = []
-    try:
-        if cells.strip().startswith("["):
-            cell_list = json.loads(cells)
-        else:
-            cell_list = [c.strip() for c in cells.split(",") if c.strip()]
-    except Exception:
-        cell_list = [c.strip() for c in cells.split(",") if c.strip()]
+    cell_list, color_hex = validated_highlight(cells, color_hex)
 
     res = await google_sheets_service.highlight_cells(
         spreadsheet_id=clean_id,
@@ -437,6 +417,7 @@ async def apply_workbook_modifications(
     sheet_name: Optional[str] = Form("Sheet1"),
     cells: str = Form(...),  # JSON list string e.g. '["H11","I25"]' or comma-separated
     color_hex: str = Form("FFFF00"),
+    sync_google: bool = Form(False),
     current_user: Optional[User] = Depends(get_current_user_optional),
     db: AsyncSession = Depends(get_db),
 ):
@@ -444,37 +425,39 @@ async def apply_workbook_modifications(
     orig_filename = "workbook.xlsx"
     user_tag = str(current_user.id) if current_user else "guest"
     if file_id:
-        f = await file_repo.get(db, file_id)
+        f = await owned_dataset(db, file_id, current_user)
         if f and Path(f.file_path).exists():
             target_path = f.file_path
             orig_filename = f.filename
     elif file is not None and bool(file.filename and file.filename.strip()):
-        contents = await file.read()
-        file_hash = hashlib.sha256(contents).hexdigest()
+        contents = await file.read(50 * 1024 * 1024 + 1)
+
         orig_filename = file.filename
-        target_path = str(settings.UPLOAD_DIR / f"preview_{user_tag}_{file_hash[:12]}_{file.filename}")
-        with open(target_path, "wb") as out:
-            out.write(contents)
+        target_path = save_dataset(contents, file.filename, user_tag)
     elif data_source_url and data_source_url.strip():
         contents, filename, mime_type = await url_dataset_loader.load(data_source_url.strip())
-        file_hash = hashlib.sha256(contents).hexdigest()
+
         orig_filename = filename
-        target_path = str(settings.UPLOAD_DIR / f"preview_{user_tag}_{file_hash[:12]}_{filename}")
-        with open(target_path, "wb") as out:
-            out.write(contents)
+        target_path = save_dataset(contents, filename, user_tag)
 
     if not target_path or not Path(target_path).exists():
         raise HTTPException(status_code=400, detail="Không tìm thấy file để áp dụng chỉnh sửa.")
 
-    # Parse cells list
-    cell_list = []
+    cell_list, color_hex = validated_highlight(cells, color_hex)
+
+    # Validate the reviewed sheet before either local or remote writes.
+    import openpyxl
     try:
-        if cells.strip().startswith("["):
-            cell_list = json.loads(cells)
-        else:
-            cell_list = [c.strip() for c in cells.split(",") if c.strip()]
+        workbook = openpyxl.load_workbook(target_path, read_only=True)
+        try:
+            if sheet_name not in workbook.sheetnames:
+                raise HTTPException(422, "Sheet không tồn tại. Hãy chọn lại sheet.")
+        finally:
+            workbook.close()
+    except HTTPException:
+        raise
     except Exception:
-        cell_list = [c.strip() for c in cells.split(",") if c.strip()]
+        raise HTTPException(422, "Không đọc được workbook để xác nhận thay đổi.")
 
     # Check and sync to Google Sheets if document is from Google Sheets
     google_sync_res = {
@@ -485,7 +468,7 @@ async def apply_workbook_modifications(
         "google_sync_error": None,
     }
     spreadsheet_id = google_sheets_service.extract_spreadsheet_id(data_source_url)
-    if spreadsheet_id and cell_list:
+    if spreadsheet_id and cell_list and sync_google:
         google_sync_res["is_google_sheet"] = True
         google_sync_res["spreadsheet_id"] = spreadsheet_id
         token, token_err = await google_sheets_service.get_valid_access_token(user=current_user, db=db)
@@ -506,9 +489,9 @@ async def apply_workbook_modifications(
             )
 
     try:
-        out_stem = Path(orig_filename).stem
+        out_stem = Path(safe_dataset_name(orig_filename)).stem
         out_filename = f"{out_stem}_highlighted.xlsx"
-        out_path = str(settings.UPLOAD_DIR / f"modified_{user_tag}_{out_filename}")
+        out_path = str(settings.UPLOAD_DIR / f"modified_{uuid4().hex}_{out_filename}")
 
         spreadsheet_query_engine.apply_highlights_to_workbook(
             file_path=target_path,
@@ -522,7 +505,7 @@ async def apply_workbook_modifications(
             "ok": True,
             "modified_file_name": out_filename,
             "highlighted_count": len(cell_list),
-            "download_url": f"/api/v1/data/download-file?filename={Path(out_path).name}",
+            "download_url": "/api/v1/data/download-file?" + urlencode({"filename": Path(out_path).name, "token": signed_url_service.generate_signed_token("data/" + Path(out_path).name, user_tag, 900)}),
             "google_sync": google_sync_res,
         }
     except Exception as e:
@@ -532,9 +515,13 @@ async def apply_workbook_modifications(
 @router.get("/download-file")
 async def download_data_file(
     filename: str,
+    token: Optional[str] = None,
     current_user: Optional[User] = Depends(get_current_user_optional),
 ):
     safe_name = Path(filename).name
+    valid, key, _ = signed_url_service.verify_and_decode_token(token or "")
+    if not valid or key != "data/" + safe_name or filename != safe_name:
+        raise HTTPException(403, "Liên kết tải tệp không hợp lệ hoặc đã hết hạn.")
     file_path = settings.UPLOAD_DIR / safe_name
     if not file_path.exists():
         raise HTTPException(status_code=404, detail="File không tồn tại hoặc đã hết hạn.")
@@ -552,7 +539,7 @@ async def profile_file_dataset(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    f = await file_repo.get(db, file_id)
+    f = await owned_dataset(db, file_id, current_user)
     if not f:
         raise HTTPException(status_code=404, detail="File not found")
 
@@ -562,6 +549,9 @@ async def profile_file_dataset(
     try:
         profile = data_engine.profile_dataset(f.file_path)
         visual_workbook = spreadsheet_visual_engine.extract_visual_workbook(f.file_path)
+        profile["file_id"] = f.id
+        profile["file_name"] = f.original_name
+        profile["original_name"] = f.original_name
         profile["visual_workbook"] = visual_workbook
         return profile
     except Exception as e:
@@ -574,7 +564,7 @@ async def aggregate_dataset(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    f = await file_repo.get(db, req.file_id)
+    f = await owned_dataset(db, req.file_id, current_user)
     if not f or not Path(f.file_path).exists():
         raise HTTPException(status_code=404, detail="File not found")
 
@@ -596,7 +586,7 @@ async def create_chart_specification(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    f = await file_repo.get(db, req.file_id)
+    f = await owned_dataset(db, req.file_id, current_user)
     if not f or not Path(f.file_path).exists():
         raise HTTPException(status_code=404, detail="File not found")
 

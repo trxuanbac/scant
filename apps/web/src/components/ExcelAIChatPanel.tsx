@@ -20,6 +20,7 @@ import {
   MicOff,
 } from "lucide-react";
 import { api, resolveApiDownloadUrl } from "@/lib/api";
+import { PersistentSpreadsheetActionCard as SpreadsheetActionCard } from "./WorkbookLedger";
 
 export interface ChatMessage {
   id: string;
@@ -60,7 +61,7 @@ export interface ChatMessage {
   };
   pending_actions?: Array<{
     id?: string;
-    type: "HIGHLIGHT_ROWS" | "HIGHLIGHT_CELLS" | "FILTER_ROWS" | "SORT" | "CREATE_CHART";
+    type: "CLEAR_HIGHLIGHTS" | "HIGHLIGHT_ROWS" | "HIGHLIGHT_CELLS" | "FILTER_ROWS" | "SORT" | "CREATE_CHART";
     sheet?: string;
     rows?: number[];
     cells?: string[];
@@ -270,6 +271,7 @@ export default function ExcelAIChatPanel({
     },
   ]);
   const [inputText, setInputText] = useState("");
+  const conversationKey = useRef<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isApplyingToXlsx, setIsApplyingToXlsx] = useState(false);
   const [downloadSuccessUrl, setDownloadSuccessUrl] = useState<string | null>(null);
@@ -466,7 +468,8 @@ export default function ExcelAIChatPanel({
       if (shouldUseSelectedRange) {
         formData.append("selected_range", selectedRange as string);
       }
-      formData.append("conversation_id", chatScope.type === "sheets" ? `excel_chat_sheets_${JSON.stringify(chatScope.sheets)}` : isWorkbookScope ? "excel_chat_workbook" : `excel_chat_${activeSheetName}`);
+      conversationKey.current ||= crypto.randomUUID();
+      formData.append("conversation_id", conversationKey.current);
 
       const res = await api.data.workbookChat(formData);
 
@@ -485,27 +488,25 @@ export default function ExcelAIChatPanel({
         result: res.result || {},
         actions: res.actions || [],
         evidence: res.evidence,
-        pending_actions: res.pending_actions || [],
+        pending_actions: [
+          ...(res.pending_actions || []),
+          ...(res.actions || []).filter((action: { type: string }) => action.type === "HIGHLIGHT_CELLS" || action.type === "CLEAR_HIGHLIGHTS"),
+          ...(getMatchedCellAddresses(res.result?.matched_cells || []).length ? [{
+            type: "HIGHLIGHT_CELLS" as const,
+            sheet: res.context?.sheet || activeSheetName,
+            cells: getMatchedCellAddresses(res.result.matched_cells),
+          }] : []),
+        ].map((action) => ({ ...action, sheet: action.sheet || res.context?.sheet || activeSheetName })),
         highlightColor: requestedHighlightColor.color,
         highlightColorName: requestedHighlightColor.name,
       };
 
       setMessages((prev) => [...prev, aiMsg]);
 
-      // Execute AI actions
-      if (res.actions && Array.isArray(res.actions)) {
-        for (const action of res.actions) {
-          if (action.type === "HIGHLIGHT_CELLS" && action.cells) {
-            const actionColor = requestedHighlightColor.isExplicit ? requestedHighlightColor.color : (action.color || requestedHighlightColor.color);
-            onHighlightCells(action.sheet || res.context?.sheet || activeSheetName, action.cells, actionColor, "AI Highlight");
-            if (action.autoScrollTo) {
-              onScrollToCell(action.autoScrollTo);
-            }
-          } else if (action.type === "CLEAR_HIGHLIGHTS") {
-            onClearHighlights(action.sheet || res.context?.sheet || activeSheetName);
-          } else if (action.type === "SCROLL_TO_CELL" && action.cells?.[0]) {
-            onScrollToCell(action.cells[0]);
-          }
+      // Navigation is read-only. Highlight and clear actions require preview/confirmation.
+      for (const action of res.actions || []) {
+        if (action.type === "SCROLL_TO_CELL" && action.cells?.[0]) {
+          onScrollToCell(action.cells[0]);
         }
       }
     } catch (err: any) {
@@ -561,8 +562,9 @@ export default function ExcelAIChatPanel({
     setDownloadSuccessUrl(null);
   };
 
-  const handleApplyToXlsxFile = async (cells: string[], color?: string) => {
-    if (!cells || cells.length === 0) return;
+  const handleApplyToXlsxFile = async (sheet: string, cells: string[], color?: string) => {
+    if (!sheet || !cells || cells.length === 0) return;
+    if (!window.confirm(locale === "vi" ? `Tạo bản XLSX tô màu ${color || activeHighlightColor} cho ${cells.length} ô trên sheet ${sheet}: ${cells.slice(0, 12).join(", ")}${cells.length > 12 ? "…" : ""}? File gốc và Google Sheets sẽ không thay đổi.` : `Create an XLSX copy highlighting ${cells.length} cells on ${sheet}? The original file and Google Sheets will not change.`)) return;
     setIsApplyingToXlsx(true);
     setDownloadSuccessUrl(null);
 
@@ -571,7 +573,7 @@ export default function ExcelAIChatPanel({
       if (file) formData.append("file", file);
       if (fileId) formData.append("file_id", fileId);
       if (dataSourceUrl) formData.append("data_source_url", dataSourceUrl);
-      formData.append("sheet_name", activeSheetName);
+      formData.append("sheet_name", sheet);
       formData.append("cells", JSON.stringify(cells));
       formData.append("color_hex", toXlsxColorHex(color));
 
@@ -799,33 +801,47 @@ export default function ExcelAIChatPanel({
               )}
 
               {msg.sender === "ai" && msg.pending_actions && msg.pending_actions.length > 0 && (
-                <div className="mt-3 flex flex-wrap items-center gap-1.5 border-t border-slate-100 pt-2.5">
-                  {msg.pending_actions.map((pendingAction, actionIdx) => (
-                    <button
-                      key={pendingAction.id || `${msg.id}-pending-${actionIdx}`}
-                      type="button"
-                      onClick={() => {
-                        const sheet = pendingAction.sheet || msg.context?.sheet || activeSheetName;
-                        const pendingColor = msg.highlightColor || pendingAction.color || activeHighlightColor || "#FEF08A";
-                        if (pendingAction.type === "HIGHLIGHT_CELLS" && pendingAction.cells?.length) {
-                          onHighlightCells(sheet, pendingAction.cells, pendingColor, "AI Pending Action");
-                          onScrollToCell(pendingAction.cells[0]);
-                        }
-                        if (pendingAction.type === "HIGHLIGHT_ROWS" && pendingAction.rows?.length) {
-                          const rowCells = pendingAction.rows.flatMap((row) =>
-                            Array.from({ length: Math.max(totalCols, 1) }, (_, idx) => `${getColumnLetter(idx + 1)}${row}`)
-                          );
-                          onHighlightCells(sheet, rowCells, pendingColor, "AI Pending Action");
-                          onScrollToCell(rowCells[0]);
-                        }
+                <div className="mt-3 space-y-2 border-t border-slate-100 pt-2.5">
+                  {msg.pending_actions.filter((action, index, actions) => {
+                    const signature = (item: NonNullable<ChatMessage["pending_actions"]>[number]) => JSON.stringify([
+                      item.type, item.sheet, [...new Set(item.cells || [])].sort(), [...new Set(item.rows || [])].sort(),
+                      msg.highlightColor || item.color || activeHighlightColor,
+                    ]);
+                    return actions.findIndex((item) => signature(item) === signature(action)) === index;
+                  }).map((action, actionIdx) => {
+                    const sheet = action.sheet || msg.context?.sheet || "";
+                    const color = msg.highlightColor || action.color || activeHighlightColor || "#FEF08A";
+                    const rows = [...new Set(action.rows || [])];
+                    const rowAction = action.type === "HIGHLIGHT_ROWS";
+                    const clear = action.type === "CLEAR_HIGHLIGHTS";
+                    const validRows = rows.length > 0 && rows.every((row) => Number.isInteger(row) && row > 0 && row <= totalRows);
+                    const canExpandRows = rowAction && sheet === activeSheetName && validRows && totalCols > 0 && rows.length * totalCols <= 50000;
+                    const cells = [...new Set(canExpandRows ? rows.flatMap((row) => Array.from({ length: totalCols }, (_, idx) => `${getColumnLetter(idx + 1)}${row}`)) : action.cells || [])];
+                    const supported = clear || action.type === "HIGHLIGHT_CELLS" || rowAction;
+                    const unavailable = !supported
+                      ? (locale === "vi" ? "Hành động này chưa được hỗ trợ trong giao diện." : "This action is not supported in this view.")
+                      : !sheet || sheet === "workbook"
+                        ? (locale === "vi" ? "Cần xác định sheet cụ thể trước khi áp dụng." : "A specific sheet is required before applying.")
+                        : rowAction && !canExpandRows
+                          ? (locale === "vi" ? "Mở sheet đích và kiểm tra phạm vi hàng (tối đa 50.000 ô)." : "Open the target sheet and check the row range (maximum 50,000 cells).")
+                          : !clear && (!cells.length || cells.length > 50000 || cells.some((cell) => !/^[A-Z]+[1-9][0-9]*$/.test(cell)))
+                            ? (locale === "vi" ? "Phạm vi ô không hợp lệ hoặc vượt quá 50.000 ô." : "The cell range is invalid or exceeds 50,000 cells.") : undefined;
+                    return <SpreadsheetActionCard
+                      key={`${msg.id}-pending-${actionIdx}`}
+                      label={action.label || (!supported ? action.type : clear ? (locale === "vi" ? "Xóa lớp tô màu" : "Clear highlights") : (locale === "vi" ? "Tô màu trong bảng" : "Highlight in table"))}
+                      sheet={sheet}
+                      cells={cells}
+                      rows={rowAction ? rows : undefined}
+                      color={color}
+                      clear={clear}
+                      unavailable={unavailable}
+                      locale={locale}
+                      onConfirm={() => {
+                        if (clear) onClearHighlights(sheet);
+                        else onHighlightCells(sheet, cells, color, "AI confirmed local action");
                       }}
-                      className="inline-flex items-center gap-1 rounded-lg bg-yellow-100 px-2.5 py-1 text-[11px] font-bold text-yellow-950 ring-1 ring-yellow-200 hover:bg-yellow-200"
-                      title={pendingAction.requires_confirmation ? "requires_confirmation" : undefined}
-                    >
-                      <Sparkles className="h-3 w-3 text-yellow-700" />
-                      <span>{pendingAction.label || (locale === "vi" ? "Áp dụng hành động" : "Apply action")}</span>
-                    </button>
-                  ))}
+                    />;
+                  })}
                 </div>
               )}
 
@@ -849,23 +865,7 @@ export default function ExcelAIChatPanel({
 
                         <button
                           type="button"
-                          onClick={() =>
-                            onHighlightCells(
-                              activeSheetName,
-                              matchedAddresses,
-                              msg.highlightColor || activeHighlightColor || "#FEF08A",
-                              "Trùng lặp"
-                            )
-                          }
-                          className="inline-flex items-center gap-1 rounded-lg bg-yellow-100 px-2.5 py-1 text-[11px] font-bold text-yellow-900 hover:bg-yellow-200 active:scale-95 transition"
-                        >
-                          <Sparkles className="h-3 w-3 text-yellow-700" />
-                          <span>{locale === "vi" ? `Tô ${msg.highlightColorName || describeChatHighlightColor(msg.highlightColor || activeHighlightColor)} trong bảng (${matchedAddresses.length} ô)` : `Highlight ${describeChatHighlightColor(msg.highlightColor || activeHighlightColor)}`}</span>
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() => handleApplyToXlsxFile(matchedAddresses, msg.highlightColor || activeHighlightColor)}
+                          onClick={() => handleApplyToXlsxFile(msg.context?.sheet || "", matchedAddresses, msg.highlightColor || activeHighlightColor)}
                           disabled={isApplyingToXlsx}
                           className="inline-flex items-center gap-1 rounded-lg bg-emerald-50 px-2.5 py-1 text-[11px] font-bold text-emerald-800 hover:bg-emerald-100 active:scale-95 disabled:opacity-50 transition"
                         >

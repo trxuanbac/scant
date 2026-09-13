@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { groupDatasetsForDisplay } from "../datasetGroups.js";
+import { filterDatasetGroups, groupDatasetsForDisplay } from "../datasetGroups.js";
 
 test("groups similar datasets under their primary dataset", () => {
   const primary = {
@@ -75,4 +75,31 @@ test("groups legacy exact duplicate uploads by file hash", () => {
   assert.equal(groups[0].primary.id, "file-1");
   assert.equal(groups[0].variants.length, 2);
   assert.equal(groups[0].status, "duplicate");
+});
+
+test("filters groups by primary or variant file name", () => {
+  const groups = groupDatasetsForDisplay([
+    { id: "file-1", original_name: "Doanh_thu.xlsx", metadata_json: {} },
+    { id: "file-2", original_name: "Bảng_lương.csv", metadata_json: {} },
+  ]);
+
+  assert.deepEqual(filterDatasetGroups(groups, "LƯƠNG").map((group) => group.primary.id), ["file-2"]);
+  assert.equal(filterDatasetGroups(groups, "").length, 2);
+});
+
+test("retains a group when the query matches a similar variant", () => {
+  const groups = groupDatasetsForDisplay([
+    {
+      id: "file-1",
+      original_name: "Doanh_thu.xlsx",
+      metadata_json: { dataset_comparison: { dataset_group_id: "group-1", dataset_role: "primary" } },
+    },
+    {
+      id: "file-2",
+      original_name: "Doanh_thu_mien_bac.xlsx",
+      metadata_json: { dataset_comparison: { dataset_group_id: "group-1", dataset_role: "similar", comparison_status: "similar" } },
+    },
+  ]);
+
+  assert.deepEqual(filterDatasetGroups(groups, "miền bắc").map((group) => group.id), ["group-1"]);
 });

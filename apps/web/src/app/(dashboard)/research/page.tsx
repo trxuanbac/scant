@@ -1,6 +1,8 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { Suspense, useState, useEffect } from "react";
+import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import {
   Search,
   Globe,
@@ -26,6 +28,7 @@ import {
   X,
 } from "lucide-react";
 import { api } from "@/lib/api";
+import { SourceLibraryWorkspace } from "@/components/SourceLibraryWorkspace";
 
 type TabType = "overview" | "sources" | "evidence" | "synthesis" | "graph";
 type SearchMode = "quick" | "deep" | "expert";
@@ -48,6 +51,16 @@ const PIPELINE_STEPS = [
 ];
 
 export default function DeepResearchPage() {
+  return (
+    <Suspense fallback={<div className="h-52 rounded-xl border border-slate-200 bg-white animate-pulse" />}>
+      <ResearchWorkspace />
+    </Suspense>
+  );
+}
+
+function ResearchWorkspace() {
+  const searchParams = useSearchParams() ?? new URLSearchParams();
+  const workspaceView = searchParams.get("view") === "library" ? "library" : "discover";
   const [query, setQuery] = useState("");
   const [mode, setMode] = useState<SearchMode>("deep");
   const [activeTab, setActiveTab] = useState<TabType>("overview");
@@ -193,15 +206,54 @@ export default function DeepResearchPage() {
   const graphNodes = researchData?.graph_nodes || [];
   const graphEdges = researchData?.graph_edges || [];
 
+  const workspaceTabs = (
+    <nav aria-label="Chế độ nghiên cứu" className="inline-flex w-fit rounded-lg border border-slate-200 bg-white p-1">
+      <Link
+        href="/research"
+        aria-current={workspaceView === "discover" ? "page" : undefined}
+        className={`inline-flex items-center gap-2 rounded-md px-3 py-2 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 ${
+          workspaceView === "discover" ? "bg-slate-900 text-white" : "text-slate-600 hover:bg-slate-100"
+        }`}
+      >
+        <Search className="h-4 w-4" />
+        Khám phá
+      </Link>
+      <Link
+        href="/research?view=library"
+        aria-current={workspaceView === "library" ? "page" : undefined}
+        className={`inline-flex items-center gap-2 rounded-md px-3 py-2 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 ${
+          workspaceView === "library" ? "bg-slate-900 text-white" : "text-slate-600 hover:bg-slate-100"
+        }`}
+      >
+        <BookOpen className="h-4 w-4" />
+        Thư viện nguồn
+      </Link>
+    </nav>
+  );
+
+  if (workspaceView === "library") {
+    return (
+      <div className="mx-auto max-w-7xl space-y-5 pb-12">
+        <div>
+          <h1 className="text-xl font-semibold tracking-tight text-slate-950">Không gian nghiên cứu</h1>
+          <p className="mt-1 text-xs text-slate-500">Khám phá, lưu và kiểm chứng nguồn cho báo cáo của bạn.</p>
+        </div>
+        {workspaceTabs}
+        <SourceLibraryWorkspace />
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6 pb-12 max-w-7xl mx-auto">
+      {workspaceTabs}
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2">
-            <h1 className="text-2xl font-black tracking-tight text-slate-900">Deep Research & Xác Thực Nguồn</h1>
+            <h1 className="text-xl font-semibold tracking-tight text-slate-950">Khám phá và xác thực nguồn</h1>
             <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-indigo-100 text-indigo-700 border border-indigo-200">
-              Zero-Hallucination v2.0
+              Có dẫn chứng
             </span>
           </div>
           <p className="text-xs text-slate-500 mt-1">
@@ -277,7 +329,7 @@ export default function DeepResearchPage() {
             className="px-6 h-11 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shadow-sm transition-all flex items-center justify-center gap-2 disabled:opacity-50 shrink-0 cursor-pointer"
           >
             {searching ? <Sparkles className="h-4 w-4 animate-spin" /> : <Globe className="h-4 w-4" />}
-            <span>{searching ? "Đang điều tra..." : "Khởi chạy Deep Research"}</span>
+            <span>{searching ? "Đang nghiên cứu..." : "Bắt đầu nghiên cứu"}</span>
           </button>
         </div>
 
@@ -412,7 +464,7 @@ export default function DeepResearchPage() {
               <span className="text-[11px] font-semibold text-slate-400">Thời gian quét</span>
               <div className="text-xl font-black text-slate-900 mt-1 flex items-center gap-1.5">
                 <Clock className="h-4 w-4 text-slate-500" />
-                <span>{researchData.duration_seconds ? `${researchData.duration_seconds}s` : "2.8s"}</span>
+                <span>{researchData.duration_seconds ? `${researchData.duration_seconds}s` : "—"}</span>
               </div>
             </div>
           </div>

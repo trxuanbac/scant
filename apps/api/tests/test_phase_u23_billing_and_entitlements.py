@@ -5,13 +5,6 @@ from app.services.billing.entitlement_service import entitlement_service
 
 def test_entitlement_gating():
     # 1. Free Tier Checks
-    ok_auto, msg_auto = entitlement_service.check_feature_access("free", "automations")
-    assert ok_auto is False
-    assert "yêu cầu gói Pro" in msg_auto
-
-    ok_collab, msg_collab = entitlement_service.check_feature_access("free", "team_collaboration", current_count=2)
-    assert ok_collab is False
-
     ok_prem, _ = entitlement_service.check_feature_access("free", "premium_models")
     assert ok_prem is False
 
@@ -19,9 +12,6 @@ def test_entitlement_gating():
     assert entitlement_service.is_export_format_allowed("free", "pdf") is False
 
     # 2. Pro Tier Checks
-    ok_pro_auto, _ = entitlement_service.check_feature_access("pro", "automations", current_count=1)
-    assert ok_pro_auto is True
-
     ok_pro_prem, _ = entitlement_service.check_feature_access("pro", "premium_models")
     assert ok_pro_prem is True
 

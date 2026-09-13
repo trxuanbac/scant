@@ -1,12 +1,19 @@
+import asyncio
+import logging
 import hashlib
 import re
 from typing import Any, Dict, Optional
+from urllib.parse import urljoin, urlparse
+from app.services.security.ssrf_validator import ssrf_validator
 import httpx
 from bs4 import BeautifulSoup
 
 
 class WebScraper:
     """Scrapes, extracts text, cleans metadata, and hashes web content."""
+
+    MAX_RESPONSE_BYTES = 2 * 1024 * 1024
+    MAX_REDIRECTS = 4
 
     @staticmethod
     async def scrape_url(url: str, timeout: float = 15.0) -> Dict[str, Any]:
@@ -16,20 +23,35 @@ class WebScraper:
         }
 
         try:
-            async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
-                res = await client.get(url, headers=headers)
-                res.raise_for_status()
-                html = res.text
-        except Exception:
-            # If live URL fetching fails (e.g. offline demo or mock URL), return graceful fallback
+            async with asyncio.timeout(timeout):
+                async with httpx.AsyncClient(timeout=timeout, follow_redirects=False) as client:
+                    target = url
+                    for redirect_count in range(WebScraper.MAX_REDIRECTS + 1):
+                        safe, reason = await asyncio.to_thread(ssrf_validator.is_url_safe, target)
+                        if not safe:
+                            raise ValueError("Unsafe research URL")
+                        async with client.stream("GET", target, headers=headers) as res:
+                            if res.status_code in {301, 302, 303, 307, 308}:
+                                location = res.headers.get("location")
+                                if not location or redirect_count == WebScraper.MAX_REDIRECTS:
+                                    raise ValueError("Invalid or excessive research redirects")
+                                target = urljoin(target, location)
+                                continue
+                            res.raise_for_status()
+                            content = bytearray()
+                            async for chunk in res.aiter_bytes():
+                                content.extend(chunk)
+                                if len(content) > WebScraper.MAX_RESPONSE_BYTES:
+                                    raise ValueError("Research response exceeds size limit")
+                            html = content.decode(res.encoding or "utf-8", errors="replace")
+                            break
+        except (httpx.HTTPError, ValueError, TimeoutError) as exc:
+            # Failure is not evidence. Do not manufacture authors, dates or excerpts.
+            logging.getLogger(__name__).warning("Research fetch unavailable: %s", type(exc).__name__)
             return {
-                "title": url.split("/")[-1].replace("-", " ").title() if "/" in url else url,
-                "authors": "Official Author / Contributor",
-                "publisher": url.split("/")[2] if "//" in url else "Web Publisher",
-                "published_date": "2024",
-                "extracted_text": f"Tài liệu chính thức và hướng dẫn kỹ thuật liên quan đến {url}.",
-                "content_hash": hashlib.sha256(url.encode("utf-8")).hexdigest(),
-                "is_scraped": True,
+                "title": "", "authors": "", "publisher": "",
+                "published_date": "", "extracted_text": "", "content_hash": "",
+                "is_scraped": False, "error": "Source could not be safely retrieved",
             }
 
         soup = BeautifulSoup(html, "html.parser")
@@ -53,6 +75,9 @@ class WebScraper:
         if author_meta and author_meta.get("content"):
             authors = author_meta["content"].strip()
 
+        date_meta = soup.find("meta", attrs={"property": "article:published_time"}) or soup.find("meta", attrs={"name": "date"})
+        published_date = str(date_meta.get("content", "")).strip() if date_meta else ""
+
         # Extract paragraphs
         paragraphs = [p.get_text().strip() for p in soup.find_all("p") if len(p.get_text().strip()) > 30]
         extracted_text = "\n\n".join(paragraphs[:30])
@@ -61,10 +86,10 @@ class WebScraper:
 
         return {
             "title": title,
-            "authors": authors or "Technical Committee / Authors",
-            "publisher": url.split("/")[2] if "//" in url else "Publisher",
-            "published_date": "2024",
-            "extracted_text": extracted_text or title,
+            "authors": authors,
+            "publisher": urlparse(target).hostname or "",
+            "published_date": published_date,
+            "extracted_text": extracted_text,
             "content_hash": content_hash,
             "is_scraped": True,
         }

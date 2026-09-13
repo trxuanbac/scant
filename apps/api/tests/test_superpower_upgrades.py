@@ -2,25 +2,9 @@ import pytest
 from httpx import AsyncClient, ASGITransport
 from app.main import app
 from app.services.citations.doi_arxiv_resolver import doi_arxiv_resolver
-from app.services.quality.plagiarism_stylometry_engine import plagiarism_stylometry_engine
 from app.services.billing.billing_provider import billing_provider
 from app.services.automation.bulk_report_service import bulk_report_service
 from app.services.visuals.diagram_agent import visual_diagram_agent, DiagramType
-
-
-@pytest.mark.asyncio
-async def test_stylometry_and_humanize_engine():
-    sample_text = (
-        "Hơn nữa, trong bối cảnh hiện nay, việc chuyển đổi số đóng vai trò then chốt. "
-        "Ngoài ra, các doanh nghiệp cần đầu tư vào trí tuệ nhân tạo một cách toàn diện. "
-        "Tóm lại, điều quan trọng cần lưu ý là công nghệ sẽ quyết định lợi thế cạnh tranh."
-    )
-    res = await plagiarism_stylometry_engine.analyze(sample_text)
-    assert "human_probability" in res
-    assert "burstiness_score" in res
-    assert "robotic_phrases_count" in res
-    assert res["robotic_phrases_count"] >= 3
-    assert len(res["recommendations"]) > 0
 
 
 @pytest.mark.asyncio

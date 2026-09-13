@@ -307,20 +307,6 @@ async def humanize_text(
     )
 
 
-class StylometryRequest(BaseModel):
-    text: str
-
-
-@router.post("/inspect-stylometry")
-async def inspect_stylometry(
-    req: StylometryRequest,
-    current_user: User = Depends(get_current_user),
-):
-    """Analyzes text for sentence burstiness, vocabulary entropy, and AI stylometry risks."""
-    from app.services.quality.plagiarism_stylometry_engine import plagiarism_stylometry_engine
-    return await plagiarism_stylometry_engine.analyze(req.text)
-
-
 class DiagramGenerateRequest(BaseModel):
     context_text: str
     diagram_type: Optional[str] = "flowchart"  # flowchart, erd, sequence, architecture, process, timeline
@@ -347,28 +333,4 @@ async def generate_diagram(
         diagram_title=req.diagram_title or "Sơ Đồ Trực Quan",
     )
     return spec.model_dump()
-
-
-from fastapi import UploadFile, File, Form
-
-
-@router.post("/voice-to-report")
-async def voice_to_report(
-    audio: UploadFile = File(...),
-    topic_context: Optional[str] = Form(None),
-    current_user: User = Depends(get_current_user),
-):
-    """Transcribes audio notes and generates structured report profile & outline."""
-    from app.services.ai.voice_service import voice_to_report_service
-    contents = await audio.read()
-    mime = audio.content_type or "audio/mp3"
-    return await voice_to_report_service.process_audio(
-        audio_bytes=contents,
-        mime_type=mime,
-        topic_context=topic_context,
-    )
-
-
-
-
 

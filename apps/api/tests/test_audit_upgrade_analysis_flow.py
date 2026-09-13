@@ -11,6 +11,13 @@ from app.services.data.action_engine import spreadsheet_action_engine
 from app.services.data.workbook_chat_service import workbook_chat_service
 
 
+def assert_highlight_requires_confirmation(response):
+    write_like = {"HIGHLIGHT_CELLS", "HIGHLIGHT_ROWS", "CLEAR_HIGHLIGHTS"}
+    assert response["pending_actions"]
+    assert not any(action["type"] in write_like for action in response["actions"])
+    assert all(action.get("requires_confirmation") is True for action in response["pending_actions"])
+
+
 @pytest.fixture
 def sample_multi_sheet_file():
     fd, path = tempfile.mkstemp(suffix=".xlsx")
@@ -116,7 +123,7 @@ async def test_analyze_action_find_max_real_execution(sample_multi_sheet_file):
     assert res["result_type"] == "row"
     assert "22.000.000" in res["answer"]
     assert res["evidence"]["operation"] == "MAX"
-    assert len(res["actions"]) > 0
+    assert_highlight_requires_confirmation(res)
 
 
 @pytest.mark.asyncio
@@ -202,7 +209,7 @@ async def test_chat_entity_count_and_exact_number_follow_up(sample_multi_sheet_f
     )
     assert "Kinh doanh" in res1["answer"]
     assert "2 lượt xuất hiện" in res1["answer"] or "2 dòng" in res1["answer"]
-    assert len(res1["actions"]) > 0
+    assert_highlight_requires_confirmation(res1)
 
     # 2. Ask follow-up: "bạn hãy cho tôi con số cụ thể"
     res2 = await workbook_chat_service.chat(
@@ -246,7 +253,7 @@ async def test_toll_station_exact_queries_my_loc():
         # In this sheet, Mỹ Lộc appears in 3 rows (6 total cells: 3 in Trạm vào, 3 in Trạm ra)
         assert "6 lượt xuất hiện" in res1["answer"]
         assert "3 dòng" in res1["answer"]
-        assert len(res1["actions"]) > 0
+        assert_highlight_requires_confirmation(res1)
 
         # 2. Ask: "bạn hãy cho tôii con số cụ thể" (with typo in 'tôii')
         res2 = await workbook_chat_service.chat(
@@ -307,5 +314,4 @@ def test_cross_file_compare():
             os.remove(path1)
         if os.path.exists(path2):
             os.remove(path2)
-
 

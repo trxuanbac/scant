@@ -1,6 +1,6 @@
 import pytest
 from test_admin_core import ctx, auth
-from app.models.entities import Project, Document, UploadedFile, Template, Automation, AuditLog, AIUsageEvent
+from app.models.entities import Project, Document, UploadedFile, Template, AIUsageEvent
 from sqlalchemy import select
 
 @pytest.mark.asyncio
@@ -11,9 +11,8 @@ async def test_metadata_and_operational_routes(ctx):
         await db.flush()
         db.add(Document(id='d',project_id='p',title='Quarterly document',content_text='PRIVATE CONTENT NEVER LEAK',content_json={'private':'PRIVATE CONTENT NEVER LEAK'}))
         db.add(Template(id='t',user_id='user',name='User private template',is_public=False,is_system=False,visibility='my'))
-        db.add(Automation(id='a',project_id='p',user_id='user',name='Schedule',trigger_type='manual',is_active=True))
         await db.commit()
-    for path in ['projects','documents','storage','templates','automations','integrations','system/health','plans','payments','billing']:
+    for path in ['projects','documents','storage','templates','integrations','system/health','plans','payments','billing']:
         assert (await c.get('/api/v1/admin/'+path,headers=auth('user'))).status_code==403
         res=await c.get('/api/v1/admin/'+path,headers=auth('admin'))
         assert res.status_code==200,(path,res.text)
@@ -23,12 +22,7 @@ async def test_metadata_and_operational_routes(ctx):
         res=await c.get('/api/v1/admin/'+path,headers=auth('root'))
         assert res.status_code==200,(path,res.text)
         assert 'api_key' not in res.text.lower()
-    paused=await c.post('/api/v1/admin/automations/a/pause',headers=auth('admin'),json={'reason':'Investigate run errors'})
-    assert paused.status_code==200,paused.text
-    assert (await c.post('/api/v1/admin/automations/a/pause',headers=auth('admin'),json={'reason':'Duplicate pause'})).status_code==409
     assert (await c.post('/api/v1/admin/templates/t/publish',headers=auth('root'),json={'reason':'Publish private data'})).status_code==403
-    async with f() as db:
-        assert (await db.execute(select(AuditLog).where(AuditLog.action=='AUTOMATION_PAUSE'))).scalar_one()
 
 @pytest.mark.asyncio
 async def test_overview_empty_is_real_and_time_bounded(ctx):

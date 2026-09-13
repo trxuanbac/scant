@@ -5,7 +5,6 @@ export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
   const token = request.cookies.get("auth_token")?.value;
 
-  const isAuthPage = pathname.startsWith("/login") || pathname.startsWith("/register");
   const isPublicApi = pathname.startsWith("/api/auth") || pathname.startsWith("/auth/callback");
 
   // Protected paths that require authentication
@@ -17,7 +16,6 @@ export function middleware(request: NextRequest) {
     pathname.startsWith("/research") ||
     pathname.startsWith("/brand-kit") ||
     pathname.startsWith("/settings") ||
-    pathname.startsWith("/automations") ||
     pathname.startsWith("/admin") ||
     pathname.startsWith("/reports");
 

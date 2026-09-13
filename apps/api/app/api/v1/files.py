@@ -16,6 +16,7 @@ from app.services.documents.pdf_parser import pdf_parser
 from app.services.documents.docx_parser import docx_parser
 from app.services.data.data_engine import data_engine
 from app.services.knowledge.retrieval_service import retrieval_service
+from app.services.data.data_access import owned_dataset
 
 router = APIRouter(prefix="/files", tags=["files"])
 
@@ -263,9 +264,7 @@ async def generate_file_signed_url(
     db: AsyncSession = Depends(get_db),
 ):
     from app.services.storage.signed_url_service import signed_url_service
-    f = await file_repo.get(db, file_id)
-    if not f:
-        raise HTTPException(status_code=404, detail="File not found")
+    f = await owned_dataset(db, file_id, current_user)
 
     token = signed_url_service.generate_signed_token(
         storage_key=f.file_path,

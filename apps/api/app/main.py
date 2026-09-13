@@ -6,7 +6,6 @@ from app.core.config import settings
 from app.core.database import init_db
 from app.api.v1 import api_router
 from app.services.observability.metrics_collector import metrics_collector
-from app.services.automation.automation_scheduler import automation_scheduler
 
 
 @asynccontextmanager
@@ -15,12 +14,7 @@ async def lifespan(app: FastAPI):
     settings.assert_production_safety()
     settings.init_storage()
     await init_db()
-    # Recalibrate scheduled automations and start background scheduler
-    await automation_scheduler.recalibrate_active_schedules()
-    automation_scheduler.start()
     yield
-    # Shutdown logic
-    automation_scheduler.stop()
 
 
 app = FastAPI(

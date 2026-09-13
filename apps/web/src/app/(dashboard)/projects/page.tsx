@@ -1,27 +1,34 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { FolderKanban, Plus, Search, Clock, Trash2, ExternalLink } from "lucide-react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { FolderKanban, Plus, Search, Clock, Trash2, ExternalLink, FileText } from "lucide-react";
 import { useProjectStore } from "@/stores/useProjectStore";
 import { formatDate } from "@/lib/utils";
 import { useTranslation } from "@/i18n/I18nContext";
-import { PreviewModal } from "@/components/PreviewModal";
 import { api } from "@/lib/api";
 import { selectProjectPreviewReport } from "@/lib/projectCards";
 import { buildReportPreviewFrameSrcDoc } from "@/lib/reportPreviewFrame";
 import { AnimatedCard } from "@/components/AnimatedCard";
 import { SkeletonLoader } from "@/components/SkeletonLoader";
+import { ReportLibraryView } from "@/components/ReportLibraryView";
 
 export default function ProjectsPage() {
+  return (
+    <Suspense fallback={<div className="h-52 rounded-xl border border-slate-200 bg-white animate-pulse" />}>
+      <ProjectsContent />
+    </Suspense>
+  );
+}
+
+function ProjectsContent() {
   const { t } = useTranslation();
   const router = useRouter();
+  const searchParams = useSearchParams() ?? new URLSearchParams();
+  const activeView = searchParams.get("view") === "reports" ? "reports" : "projects";
   const { projects, isLoading, fetchProjects, deleteProject } = useProjectStore();
   const [search, setSearch] = useState("");
-  const [filterType, setFilterType] = useState<string>("all");
-  const [previewProject, setPreviewProject] = useState<any | null>(null);
-  const [previewLoading, setPreviewLoading] = useState(false);
   const [reports, setReports] = useState<any[]>([]);
   const [projectPreviewFrames, setProjectPreviewFrames] = useState<Record<string, string>>({});
 
@@ -45,13 +52,10 @@ export default function ProjectsPage() {
     };
   }, []);
 
-  const filteredProjects = projects.filter((p) => {
-    const matchesSearch =
-      p.name.toLowerCase().includes(search.toLowerCase()) ||
-      (p.description && p.description.toLowerCase().includes(search.toLowerCase()));
-    const matchesType = filterType === "all" || p.type === filterType;
-    return matchesSearch && matchesType;
-  });
+  const filteredProjects = useMemo(() => projects.filter((p) =>
+    p.name.toLowerCase().includes(search.toLowerCase()) ||
+    (p.description && p.description.toLowerCase().includes(search.toLowerCase()))
+  ), [projects, search]);
   const filteredProjectIdsKey = filteredProjects.map((p) => p.id).join("|");
 
   useEffect(() => {
@@ -85,7 +89,7 @@ export default function ProjectsPage() {
     return () => {
       cancelled = true;
     };
-  }, [filteredProjectIdsKey, reports, projectPreviewFrames]);
+  }, [filteredProjectIdsKey, filteredProjects, reports, projectPreviewFrames]);
 
   const handleDelete = async (e: React.MouseEvent, id: string) => {
     e.preventDefault();
@@ -95,38 +99,49 @@ export default function ProjectsPage() {
     }
   };
 
-  const openProjectPreview = async (project: any) => {
-    setPreviewProject(project);
-    setPreviewLoading(true);
-    try {
-      setPreviewProject(await api.projects.get(project.id));
-    } catch {
-      setPreviewProject(project);
-    } finally {
-      setPreviewLoading(false);
-    }
-  };
+  const libraryTabs = (
+    <nav aria-label="Chế độ thư viện" className="inline-flex w-fit rounded-lg border border-slate-200 bg-white p-1">
+      <Link
+        href="/projects"
+        aria-current={activeView === "projects" ? "page" : undefined}
+        className={`inline-flex items-center gap-2 rounded-md px-3 py-2 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 ${
+          activeView === "projects" ? "bg-slate-900 text-white" : "text-slate-600 hover:bg-slate-100"
+        }`}
+      >
+        <FolderKanban className="h-4 w-4" />
+        Dự án
+      </Link>
+      <Link
+        href="/projects?view=reports"
+        aria-current={activeView === "reports" ? "page" : undefined}
+        className={`inline-flex items-center gap-2 rounded-md px-3 py-2 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 ${
+          activeView === "reports" ? "bg-slate-900 text-white" : "text-slate-600 hover:bg-slate-100"
+        }`}
+      >
+        <FileText className="h-4 w-4" />
+        Báo cáo
+      </Link>
+    </nav>
+  );
 
-  const getProjectInfoRows = (project: any) => {
-    const metadata = project?.metadata_json || {};
-    const customFields = Array.isArray(metadata.custom_fields) ? metadata.custom_fields : [];
-    const readable = (value: any) =>
-      String(value || "")
-        .replace(/_/g, " ")
-        .replace(/\b\w/g, (char) => char.toUpperCase());
-
-    const rows = [
-      ["Loại tài liệu", readable(metadata.document_type || project?.type)],
-      ["Hồ sơ báo cáo", readable(metadata.document_profile)],
-      ["Đối tượng đọc", metadata.audience],
-      ["Ngôn ngữ", metadata.language === "vi" ? "Tiếng Việt" : metadata.language === "en" ? "Tiếng Anh" : metadata.language],
-      ...customFields
-        .filter((field: any) => field?.value !== undefined && field?.value !== null && String(field.value).trim() !== "")
-        .map((field: any) => [field.label || field.key, field.value]),
-    ];
-
-    return rows.filter(([, value]) => value !== undefined && value !== null && String(value).trim() !== "");
-  };
+  if (activeView === "reports") {
+    return (
+      <div className="mx-auto max-w-6xl space-y-5 py-2">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h1 className="text-xl font-semibold tracking-tight text-slate-950">Thư viện công việc</h1>
+            <p className="mt-1 text-xs text-slate-500">Quản lý dự án và các báo cáo đã tạo trong cùng một nơi.</p>
+          </div>
+          <Link href="/projects/new" className="inline-flex items-center gap-2 self-start rounded-lg bg-indigo-600 px-4 py-2 text-xs font-semibold text-white hover:bg-indigo-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2">
+            <Plus className="h-4 w-4" />
+            Tạo mới
+          </Link>
+        </div>
+        {libraryTabs}
+        <ReportLibraryView embedded />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6 max-w-6xl mx-auto py-2">
@@ -144,6 +159,8 @@ export default function ProjectsPage() {
           <span>{t("projects.createProject")}</span>
         </Link>
       </div>
+
+      {libraryTabs}
 
       {/* Search Bar */}
       <div className="flex items-center gap-3 bg-white p-3 rounded-2xl border border-slate-200 shadow-2xs">
@@ -267,68 +284,6 @@ export default function ProjectsPage() {
         </div>
       )}
 
-      <PreviewModal
-        isOpen={!!previewProject}
-        onClose={() => setPreviewProject(null)}
-        title={previewProject?.name || "Xem trước dự án"}
-        subtitle={previewProject?.type}
-        footer={
-          <>
-            <button
-              type="button"
-              onClick={() => setPreviewProject(null)}
-              className="rounded-lg px-3 py-2 text-xs font-bold text-slate-600 hover:bg-slate-100"
-            >
-              {t("common.cancel")}
-            </button>
-            {previewProject && (
-              <Link
-                href={`/projects/${previewProject.id}`}
-                className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-2 text-xs font-bold text-white hover:bg-indigo-700"
-              >
-                <ExternalLink className="h-3.5 w-3.5" />
-                <span>Mở dự án</span>
-              </Link>
-            )}
-          </>
-        }
-      >
-        {previewLoading ? (
-          <div className="h-40 rounded-xl bg-slate-100 animate-pulse" />
-        ) : (
-          <div className="space-y-4 text-xs">
-            <div className="grid grid-cols-2 gap-3">
-              <div className="rounded-xl border border-slate-200 p-3">
-                <div className="text-slate-400">Loại dự án</div>
-                <div className="mt-1 font-bold text-slate-900">{previewProject?.type || "Document"}</div>
-              </div>
-              <div className="rounded-xl border border-slate-200 p-3">
-                <div className="text-slate-400">Ngày tạo</div>
-                <div className="mt-1 font-bold text-slate-900">{previewProject?.created_at ? formatDate(previewProject.created_at) : "-"}</div>
-              </div>
-            </div>
-            <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-              <h3 className="font-bold text-slate-900">Mô tả</h3>
-              <p className="mt-2 whitespace-pre-wrap leading-relaxed text-slate-600">
-                {previewProject?.description || "Dự án này chưa có mô tả chi tiết."}
-              </p>
-            </div>
-            {getProjectInfoRows(previewProject).length > 0 && (
-              <div className="rounded-xl border border-slate-200 p-4">
-                <h3 className="font-bold text-slate-900">Thông tin chính</h3>
-                <div className="mt-3 divide-y divide-slate-100">
-                  {getProjectInfoRows(previewProject).map(([label, value]) => (
-                    <div key={String(label)} className="grid grid-cols-[150px_1fr] gap-3 py-2">
-                      <span className="text-slate-400">{label}</span>
-                      <span className="font-semibold leading-relaxed text-slate-800">{String(value)}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-      </PreviewModal>
     </div>
   );
 }

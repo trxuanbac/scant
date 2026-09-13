@@ -2,35 +2,26 @@
 
 import { GoogleDataConnection } from "@/components/GoogleDataConnection";
 
-import { useState, useEffect, Suspense, useRef } from "react";
+import { useCallback, useState, useEffect, Suspense, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   Briefcase,
   TrendingUp,
   Search,
-  FileCode,
-  FileSpreadsheet,
-  DollarSign,
-  PieChart,
-  BarChart3,
   FileText,
   Sparkles,
   ArrowRight,
   ArrowLeft,
   CheckCircle2,
   AlertCircle,
-  Plus,
   Trash2,
   Upload,
   Layers,
-  Building,
   Wand2,
   Play,
   Pause,
   RotateCcw,
   XCircle,
-  Zap,
-  Mic,
   Table,
   Check,
   RefreshCw,
@@ -46,13 +37,13 @@ import {
 } from "@/lib/autoJobState";
 import { formatUnknownError } from "@/lib/apiErrors";
 import { buildDatasetSourcePromptParts, hasDatasetSource } from "@/lib/datasetSource";
-import { VoiceRecorderModal } from "@/components/VoiceRecorderModal";
+import { getVisibleProjectTypes, normalizeNewProjectType } from "@/lib/productFocus";
 import ExcelAnalysisWorkspace from "@/components/ExcelAnalysisWorkspace";
 import DirectAnalysisPromptPanel from "@/components/DirectAnalysisPromptPanel";
 import { resolveSelectedSheetName } from "@/lib/directAnalysisPreview";
 import { useTranslation } from "@/i18n/I18nContext";
 import { DataAnalysisModeSelection, type DataAnalysisMode } from "@/components/DataAnalysisModeSelection";
-import { readAnalysisMode, analysisModeUrl } from "@/lib/dataAnalysisNavigation";
+import { readAnalysisMode, analysisModeUrl, readDatasetId } from "@/lib/dataAnalysisNavigation";
 import { useModeStore } from "@/stores/useModeStore";
 
 interface CustomFieldItem {
@@ -77,12 +68,8 @@ const PROJECT_TYPE_META = [
   { id: "business_report", icon: Briefcase, color: "text-blue-600 bg-blue-50" },
   { id: "data_analysis", icon: TrendingUp, color: "text-emerald-600 bg-emerald-50" },
   { id: "research", icon: Search, color: "text-indigo-600 bg-indigo-50" },
-  { id: "technical", icon: FileCode, color: "text-violet-600 bg-violet-50" },
-  { id: "proposal", icon: FileSpreadsheet, color: "text-amber-600 bg-amber-50" },
-  { id: "financial", icon: DollarSign, color: "text-teal-600 bg-teal-50" },
-  { id: "market_research", icon: PieChart, color: "text-rose-600 bg-rose-50" },
   { id: "custom", icon: FileText, color: "text-slate-600 bg-slate-50" },
-];
+].filter(({ id }) => getVisibleProjectTypes().includes(id));
 
 const PROJECT_TYPE_GUIDE = {
   vi: {
@@ -548,17 +535,17 @@ function UniversalProjectWizardContent() {
   const searchParams = useSearchParams();
   const { locale } = useTranslation();
   const copy = WIZARD_COPY[locale];
-  const initialType = searchParams?.get("type") || "business_report";
+  const initialType = normalizeNewProjectType(searchParams?.get("type") || "business_report");
   const initialPrompt = searchParams?.get("prompt") || "";
   const initialMode = searchParams?.get("mode");
   const initialWorkflow = searchParams?.get("workflow");
   const initialIsDataWorkflow = initialType === "data_analysis" || initialWorkflow === "data";
+  const initialStoredDatasetId = readDatasetId(searchParams ?? new URLSearchParams());
 
   // Mode Selection: "auto" | "advanced" | "bulk"
   const [mode, setMode] = useState<"auto" | "advanced" | "bulk">(
     initialMode === "advanced" || initialMode === "bulk" ? initialMode : "auto"
   );
-  const [isVoiceOpen, setIsVoiceOpen] = useState(false);
 
   // AUTO CREATE STATE
   const [autoPrompt, setAutoPrompt] = useState(
@@ -577,6 +564,11 @@ function UniversalProjectWizardContent() {
   const [autoFiles, setAutoFiles] = useState<File[]>([]);
   const [dataSourceMode, setDataSourceMode] = useState<"file" | "url">("file");
   const [dataSourceUrl, setDataSourceUrl] = useState("");
+  const [storedDatasetId, setStoredDatasetId] = useState<string | null>(initialStoredDatasetId);
+  const [storedDatasetName, setStoredDatasetName] = useState("");
+  const [storedDatasetLoading, setStoredDatasetLoading] = useState(Boolean(initialStoredDatasetId));
+  const [storedDatasetError, setStoredDatasetError] = useState("");
+  const [storedDatasetReload, setStoredDatasetReload] = useState(0);
   const [dataSheetRange, setDataSheetRange] = useState("");
   const [dataAnalysisRequest, setDataAnalysisRequest] = useState("");
   const [isRunningInitialAnalysis, setIsRunningInitialAnalysis] = useState(false);
@@ -585,7 +577,6 @@ function UniversalProjectWizardContent() {
   const [isDataPreviewing, setIsDataPreviewing] = useState(false);
   const [dataPreviewConfirmed, setDataPreviewConfirmed] = useState(false);
   const [selectedDataSheetName, setSelectedDataSheetName] = useState<string>("");
-  const [isDataInfoHidden, setIsDataInfoHidden] = useState(false);
   const [activeJobId, setActiveJobId] = useState<string | null>(null);
   const [jobProgress, setJobProgress] = useState<number>(0);
   const [jobStatusMsg, setJobStatusMsg] = useState<string>("");
@@ -616,7 +607,6 @@ function UniversalProjectWizardContent() {
   // BULK BATCH STATE
   const [bulkFile, setBulkFile] = useState<File | null>(null);
   const [bulkPreviewRows, setBulkPreviewRows] = useState<any[]>([]);
-  const [isBulkPreviewing, setIsBulkPreviewing] = useState(false);
   const [isBulkSubmitting, setIsBulkSubmitting] = useState(false);
   const [bulkBatchResult, setBulkBatchResult] = useState<any | null>(null);
 
@@ -640,11 +630,9 @@ function UniversalProjectWizardContent() {
     { key: "department", label: "Phòng ban phụ trách", type: "text", required: false, value: "Khối Chiến lược" },
     { key: "lead_author", label: "Người lập báo cáo", type: "text", required: true, value: "Alex Nguyen" },
   ]);
-  const [selectedTemplate, setSelectedTemplate] = useState("tpl_corp_standard");
+  const selectedTemplate = "tpl_corp_standard";
   const [knowledgeFiles, setKnowledgeFiles] = useState<File[]>([]);
   const [isGeneratingOutline, setIsGeneratingOutline] = useState(false);
-  const [projectUnderstanding, setProjectUnderstanding] = useState("");
-  const [objectives, setObjectives] = useState<string[]>([]);
   const [outline, setOutline] = useState<OutlineItemUI[]>([]);
   const [isCreatingReport, setIsCreatingReport] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -652,7 +640,7 @@ function UniversalProjectWizardContent() {
   const getSuggestedProjectType = (text: string) => {
     const normalized = text.toLowerCase();
     if (/(arm|x86|api|server|máy chủ|mạng|network|kiến trúc|architecture|phần mềm|software|triển khai|deploy|hệ thống)/i.test(normalized)) {
-      return "technical";
+      return "business_report";
     }
     if (/(nghiên cứu|research|học thuật|tiểu luận|bài tập lớn|luận|phân tích chuyên sâu|so sánh)/i.test(normalized)) {
       return "research";
@@ -661,13 +649,13 @@ function UniversalProjectWizardContent() {
       return "data_analysis";
     }
     if (/(thị trường|market|khách hàng|đối thủ|customer|competitor|phân khúc)/i.test(normalized)) {
-      return "market_research";
+      return "research";
     }
     if (/(tài chính|doanh thu|chi phí|dòng tiền|financial|revenue|cash flow|lợi nhuận)/i.test(normalized)) {
-      return "financial";
+      return "business_report";
     }
     if (/(đề xuất|proposal|hồ sơ thầu|chào thầu|dự toán|ngân sách)/i.test(normalized)) {
-      return "proposal";
+      return "business_report";
     }
     if (/(kinh doanh|business|chiến lược|quản trị|vận hành|kế hoạch)/i.test(normalized)) {
       return "business_report";
@@ -682,7 +670,7 @@ function UniversalProjectWizardContent() {
     return `${apiOrigin}${downloadUrl.startsWith("/") ? downloadUrl : `/${downloadUrl}`}`;
   };
 
-  const guardAutoJobContextChange = () => {
+  const guardAutoJobContextChange = useCallback(() => {
     if (!activeJobId || canSafelySwitchAutoContext(jobStatus)) return true;
     window.alert(
       locale === "vi"
@@ -690,7 +678,44 @@ function UniversalProjectWizardContent() {
         : "This document is still being generated. Please pause, cancel, or wait for it to finish before changing modules so the progress view is not lost."
     );
     return false;
-  };
+  }, [activeJobId, jobStatus, locale]);
+
+  useEffect(() => {
+    if (!storedDatasetId || !isDataWorkflow) {
+      setStoredDatasetLoading(false);
+      return;
+    }
+
+    let active = true;
+    setStoredDatasetLoading(true);
+    setStoredDatasetError("");
+    setError(null);
+
+    void api.data.profile(storedDatasetId).then((savedProfile: any) => {
+      if (!active) return;
+      const firstSheet = savedProfile?.sheets?.[0]?.name || savedProfile?.visual_workbook?.sheets?.[0]?.name || "";
+      const displayName = savedProfile?.original_name || savedProfile?.file_name || (locale === "vi" ? "Tập dữ liệu đã lưu" : "Saved dataset");
+      setStoredDatasetName(displayName);
+      setDataSourceMode("file");
+      setAutoFiles([]);
+      setDataPreview({ ...savedProfile, ok: true, file_name: displayName });
+      setSelectedDataSheetName(firstSheet);
+      setDataPreviewConfirmed(true);
+      setInteractiveAnalysisResult(null);
+      setInteractivePreferredSheet(firstSheet);
+      setIsInteractiveWorkspaceOpen(true);
+    }).catch((cause: unknown) => {
+      if (!active) return;
+      setDataPreview(null);
+      setDataPreviewConfirmed(false);
+      setIsInteractiveWorkspaceOpen(false);
+      setStoredDatasetError(formatUnknownError(cause, locale === "vi" ? "Không thể mở tập dữ liệu đã lưu." : "Could not open the saved dataset."));
+    }).finally(() => {
+      if (active) setStoredDatasetLoading(false);
+    });
+
+    return () => { active = false; };
+  }, [isDataWorkflow, locale, storedDatasetId, storedDatasetReload]);
 
   const registerModeChangeHandler = useModeStore((state) => state.registerModeChangeHandler);
 
@@ -722,7 +747,7 @@ function UniversalProjectWizardContent() {
       if (!shouldRestoreAutoJob(saved)) return;
 
       setMode("auto");
-      setProjectType(saved.projectType || initialType);
+      setProjectType(normalizeNewProjectType(saved.projectType || initialType));
       setActiveJobId(saved.jobId);
       setCreatedReportId(saved.reportId || null);
       setJobStatus(saved.status || "running");
@@ -852,13 +877,15 @@ function UniversalProjectWizardContent() {
 
   const clearAutoFiles = () => {
     setAutoFiles([]);
+    setStoredDatasetId(null);
+    setStoredDatasetName("");
+    setStoredDatasetError("");
     setDataPreview(null);
     setDataPreviewConfirmed(false);
     setIsInteractiveWorkspaceOpen(false);
     setInteractiveAnalysisResult(null);
     setInteractivePreferredSheet("");
     setSelectedDataSheetName("");
-    setIsDataInfoHidden(false);
     setError(null);
     if (autoFileInputRef.current) {
       autoFileInputRef.current.value = "";
@@ -876,6 +903,8 @@ function UniversalProjectWizardContent() {
       const formData = new FormData();
       if (dataSourceMode === "file" && selectedDatasetFile) {
         formData.append("file", selectedDatasetFile);
+      } else if (dataSourceMode === "file" && storedDatasetId) {
+        formData.append("file_id", storedDatasetId);
       }
       if (dataSourceMode === "url" && dataSourceUrl.trim()) {
         formData.append("data_source_url", dataSourceUrl.trim());
@@ -932,7 +961,6 @@ function UniversalProjectWizardContent() {
     setDataPreviewConfirmed(false);
     setIsInteractiveWorkspaceOpen(false);
     setSelectedDataSheetName("");
-    setIsDataInfoHidden(false);
     setIsDataPreviewing(true);
     setDataPreviewLoadingStep(locale === "vi" ? "Đang kết nối..." : "Connecting...");
     setError(null);
@@ -992,11 +1020,13 @@ function UniversalProjectWizardContent() {
 
   const handleAutoFilesChange = async (files: File[]) => {
     setDataSourceMode("file");
+    setStoredDatasetId(null);
+    setStoredDatasetName("");
+    setStoredDatasetError("");
     setAutoFiles(files);
     setDataPreview(null);
     setDataPreviewConfirmed(false);
     setSelectedDataSheetName("");
-    setIsDataInfoHidden(false);
     if (!isDataWorkflow) return;
     const datasetFile = files.find((file) => /\.(xlsx|xls|xlsm|csv)$/i.test(file.name));
     if (!datasetFile) return;
@@ -1075,6 +1105,8 @@ function UniversalProjectWizardContent() {
           mode: dataSourceMode,
           files: autoFiles,
           url: dataSourceUrl,
+          fileId: storedDatasetId,
+          fileName: storedDatasetName,
           sheetRange: dataSheetRange,
           analysisRequest: effectiveDataAnalysisRequest,
         }) : []),
@@ -1095,6 +1127,9 @@ function UniversalProjectWizardContent() {
 
       formData.append("prompt", fullPrompt);
       if (isDataWorkflow) {
+        if (storedDatasetId) {
+          formData.append("dataset_file_id", storedDatasetId);
+        }
         if (dataSourceMode === "url" && dataSourceUrl.trim()) {
           formData.append("data_source_url", dataSourceUrl.trim());
         }
@@ -1108,7 +1143,7 @@ function UniversalProjectWizardContent() {
           : `template_${autoTemplateFile.name}`;
         formData.append("files", autoTemplateFile, normalizedName);
       }
-      if (!isDataWorkflow || dataSourceMode === "file") {
+      if (!isDataWorkflow || (dataSourceMode === "file" && !storedDatasetId)) {
         autoFiles.forEach((f) => formData.append("files", f));
       }
 
@@ -1176,7 +1211,6 @@ function UniversalProjectWizardContent() {
     const file = e.target.files?.[0];
     if (!file) return;
     setBulkFile(file);
-    setIsBulkPreviewing(true);
     try {
       const fd = new FormData();
       fd.append("file", file);
@@ -1184,8 +1218,6 @@ function UniversalProjectWizardContent() {
       setBulkPreviewRows(res.preview || []);
     } catch (err: any) {
       alert(`${copy.bulkReadError} ${formatUnknownError(err)}`);
-    } finally {
-      setIsBulkPreviewing(false);
     }
   };
 
@@ -1260,8 +1292,6 @@ function UniversalProjectWizardContent() {
         target_chapters_count: 5,
       });
 
-      setProjectUnderstanding(outlineRes.project_understanding);
-      setObjectives(outlineRes.objectives);
       setOutline(outlineRes.outline);
       (window as any).__created_project_id = project.id;
       setStep(4);
@@ -1398,9 +1428,8 @@ function UniversalProjectWizardContent() {
 
     return base;
   })();
-  const hasDatasetFile = autoFiles.some((file) => /\.(xlsx|xls|xlsm|csv)$/i.test(file.name));
   const selectedDatasetFile = autoFiles.find((file) => /\.(xlsx|xls|xlsm|csv)$/i.test(file.name));
-  const hasActiveDatasetSource = hasDatasetSource({ mode: dataSourceMode, files: autoFiles, url: dataSourceUrl });
+  const hasActiveDatasetSource = hasDatasetSource({ mode: dataSourceMode, files: autoFiles, url: dataSourceUrl, fileId: storedDatasetId });
   const hasRequiredPrompt = !moduleAutoFields.requiresPrompt || Boolean(autoPrompt.trim());
   const hasRequiredTemplate = autoCreationMode !== "template" || Boolean(autoTemplateFile);
   const hasRequiredData = !isDataWorkflow || (hasActiveDatasetSource && dataPreviewConfirmed);
@@ -1444,7 +1473,6 @@ function UniversalProjectWizardContent() {
       ];
   const selectedDataSheet = dataPreview?.sheets?.find((sheet: any) => sheet.name === selectedDataSheetName) || dataPreview?.sheets?.[0];
   const selectedDataColumns = selectedDataSheet?.columns || [];
-  const selectedDataRecords = selectedDataSheet?.records || [];
 
   const openModuleScreen = (typeId: string) => {
     if (!guardAutoJobContextChange()) return;
@@ -1468,7 +1496,9 @@ function UniversalProjectWizardContent() {
     setDataPreview(null);
     setDataPreviewConfirmed(false);
     setSelectedDataSheetName("");
-    setIsDataInfoHidden(false);
+    setStoredDatasetId(null);
+    setStoredDatasetName("");
+    setStoredDatasetError("");
     if (typeId !== "data_analysis") {
       setAutoFiles([]);
     }
@@ -1512,6 +1542,31 @@ function UniversalProjectWizardContent() {
         </ol>
       )}
 
+      {storedDatasetLoading && (
+        <div className="flex items-center gap-3 rounded-lg border border-indigo-100 bg-indigo-50 px-4 py-3 text-sm text-indigo-800" aria-live="polite">
+          <RefreshCw className="h-4 w-4 animate-spin" />
+          <span>{locale === "vi" ? "Đang mở tập dữ liệu đã lưu…" : "Opening the saved dataset…"}</span>
+        </div>
+      )}
+
+      {storedDatasetError && (
+        <div role="alert" className="flex flex-col gap-3 rounded-lg border border-red-200 bg-red-50 p-4 sm:flex-row sm:items-center">
+          <AlertCircle className="h-5 w-5 shrink-0 text-red-600" />
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-semibold text-red-900">{locale === "vi" ? "Không thể mở tập dữ liệu đã lưu" : "Could not open the saved dataset"}</p>
+            <p className="mt-1 break-words text-xs text-red-700">{storedDatasetError}</p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button type="button" onClick={() => setStoredDatasetReload((value) => value + 1)} className="rounded-md border border-red-200 bg-white px-3 py-2 text-xs font-medium text-red-800 hover:bg-red-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500">
+              {locale === "vi" ? "Thử tải lại" : "Try again"}
+            </button>
+            <a href="/data" className="rounded-md px-3 py-2 text-xs font-medium text-slate-700 hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500">
+              {locale === "vi" ? "Về thư viện dữ liệu" : "Back to data library"}
+            </a>
+          </div>
+        </div>
+      )}
+
       {error && (
         <div className="p-3 bg-red-50 border border-red-200 text-red-700 rounded-xl text-xs flex items-center gap-2">
           <AlertCircle className="h-4 w-4 shrink-0" />
@@ -1523,8 +1578,9 @@ function UniversalProjectWizardContent() {
       {isInteractiveWorkspaceOpen && dataPreview && !dataPreview.error && (
           <div hidden={mode !== "auto" || !isDataWorkflow || dataAnalysisBranch !== "interactive"} data-auto-create-shell className="w-full min-w-0 overflow-hidden">
             <ExcelAnalysisWorkspace
-              fileName={dataPreview.file_name || autoFiles[0]?.name || "Bảng tính dữ liệu"}
+              fileName={storedDatasetName || dataPreview.file_name || autoFiles[0]?.name || "Bảng tính dữ liệu"}
               file={autoFiles[0] || null}
+              fileId={storedDatasetId || undefined}
               dataSourceUrl={dataSourceUrl}
               visualWorkbook={dataPreview.visual_workbook}
               initialAnalysis={dataPreview.initial_analysis}
@@ -1648,6 +1704,9 @@ function UniversalProjectWizardContent() {
                             type="button"
                             onClick={() => {
                               setDataSourceMode("file");
+                              setStoredDatasetId(null);
+                              setStoredDatasetName("");
+                              setStoredDatasetError("");
                               setDataPreview(null);
                               setDataPreviewConfirmed(false);
                               setError(null);
@@ -1663,6 +1722,9 @@ function UniversalProjectWizardContent() {
                             type="button"
                             onClick={() => {
                               setDataSourceMode("url");
+                              setStoredDatasetId(null);
+                              setStoredDatasetName("");
+                              setStoredDatasetError("");
                               setDataPreview(null);
                               setDataPreviewConfirmed(false);
                               setError(null);
@@ -2035,16 +2097,6 @@ function UniversalProjectWizardContent() {
                           </label>
                           <p className="mt-1 text-[11px] leading-4 text-slate-500">{moduleAutoFields.mainHint}</p>
                         </div>
-                        {moduleAutoFields.showVoice && (
-                          <button
-                            type="button"
-                            onClick={() => setIsVoiceOpen(true)}
-                            className="flex shrink-0 items-center space-x-1 px-2.5 py-1 bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-bold rounded-lg transition"
-                          >
-                            <Mic className="h-3.5 w-3.5 text-rose-600" />
-                            <span>{copy.voiceIdea}</span>
-                          </button>
-                        )}
                       </div>
                       <textarea
                         rows={isDataWorkflow ? 3 : 4}
@@ -2087,8 +2139,9 @@ function UniversalProjectWizardContent() {
                   {isInteractiveWorkspaceOpen && dataPreview && !dataPreview.error ? (
                     <div className="min-w-0 space-y-4 overflow-hidden">
                       <ExcelAnalysisWorkspace
-                        fileName={dataPreview.file_name || autoFiles[0]?.name || "Bảng tính dữ liệu"}
+                        fileName={storedDatasetName || dataPreview.file_name || autoFiles[0]?.name || "Bảng tính dữ liệu"}
                         file={autoFiles[0] || null}
+                        fileId={storedDatasetId || undefined}
                         dataSourceUrl={dataSourceUrl}
                         visualWorkbook={dataPreview.visual_workbook}
                         initialAnalysis={dataPreview.initial_analysis}
@@ -2122,6 +2175,9 @@ function UniversalProjectWizardContent() {
                             type="button"
                             onClick={() => {
                               setDataSourceMode("file");
+                              setStoredDatasetId(null);
+                              setStoredDatasetName("");
+                              setStoredDatasetError("");
                               setDataPreview(null);
                               setDataPreviewConfirmed(false);
                               setIsInteractiveWorkspaceOpen(false);
@@ -2138,6 +2194,9 @@ function UniversalProjectWizardContent() {
                             type="button"
                             onClick={() => {
                               setDataSourceMode("url");
+                              setStoredDatasetId(null);
+                              setStoredDatasetName("");
+                              setStoredDatasetError("");
                               setDataPreview(null);
                               setDataPreviewConfirmed(false);
                               setIsInteractiveWorkspaceOpen(false);
@@ -3035,14 +3094,6 @@ function UniversalProjectWizardContent() {
         </div>
       )}
 
-      {/* Voice Recorder Modal */}
-      <VoiceRecorderModal
-        isOpen={isVoiceOpen}
-        onClose={() => setIsVoiceOpen(false)}
-        onTranscriptComplete={(transcript) => {
-          setAutoPrompt(transcript);
-        }}
-      />
     </div>
   );
 }

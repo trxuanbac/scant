@@ -23,12 +23,26 @@ test("ExcelAnalysisWorkspace renders docked prompt bar with suggestions and Anal
   assert.match(source, /📊 Phân tích bất thường/);
 });
 
-test("ExcelAnalysisWorkspace renders structured Analysis Findings Banner with Evidence chip and Undo button", () => {
+test("ExcelAnalysisWorkspace renders structured Analysis Findings Banner with Evidence chip and durable Undo history", () => {
   const source = readFileSync(resolve(componentDir, "ExcelAnalysisWorkspace.tsx"), "utf8");
   assert.match(source, /lastAnalysisResult\.evidence/);
   assert.match(source, /📍.*Nguồn:/);
-  assert.match(source, /handleUndoLastAction/);
-  assert.match(source, /api\.data\.actionUndo/);
+  assert.match(source, /<WorkbookLedger/);
+  const ledger = readFileSync(resolve(componentDir, "WorkbookLedger.tsx"), "utf8");
+  assert.match(ledger, /Hoàn tác lớp gần nhất/);
+  assert.match(ledger, /workbook-actions\/\$\{actionId\}\/undo/);
+});
+
+test("spreadsheet highlight proposals require preview and explicit confirmation", () => {
+  const workspaceSource = readFileSync(resolve(componentDir, "ExcelAnalysisWorkspace.tsx"), "utf8");
+  const chatSource = readFileSync(resolve(componentDir, "ExcelAIChatPanel.tsx"), "utf8");
+  const actionCardSource = readFileSync(resolve(componentDir, "SpreadsheetActionCard.tsx"), "utf8");
+
+  assert.match(workspaceSource, /lastAnalysisResult\.pending_actions/);
+  assert.match(chatSource, /msg\.pending_actions/);
+  assert.match(chatSource, /<SpreadsheetActionCard/);
+  assert.match(actionCardSource, /Xác nhận áp dụng cục bộ/);
+  assert.match(actionCardSource, /status !== "preview"/);
 });
 
 test("ExcelAnalysisWorkspace maintains isolated floating Ask AI chat button with default closed state", () => {

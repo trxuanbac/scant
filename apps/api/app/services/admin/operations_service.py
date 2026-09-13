@@ -6,7 +6,7 @@ import shutil
 from fastapi import HTTPException
 from sqlalchemy import select, func, or_, case, literal
 from app.models.entities import (Project, Document, UploadedFile, Template, TemplateVersion,
-    Report, Job, User, Automation, AutomationRun, AIUsageEvent)
+    Report, Job, User, AIUsageEvent)
 from app.core.config import settings
 
 
@@ -56,19 +56,9 @@ async def list_resources(db, kind, filters, resource_id=None):
             select(func.max(TemplateVersion.version_number)).where(TemplateVersion.template_id == m.id).correlate(m).scalar_subquery().label('version')
         ).outerjoin(User, User.id == m.user_id)
         user_col, project_col, name_col = m.user_id, None, m.name
-    elif kind == 'automations':
-        m = Automation
-        stmt = select(m.id, m.name, m.project_id, m.user_id, owner, m.trigger_type, m.is_active,
-            m.last_run_at, m.next_run_at, m.created_at, m.updated_at).outerjoin(User, User.id == m.user_id)
-        user_col, project_col, name_col = m.user_id, m.project_id, m.name
-    elif kind == 'runs':
-        m = AutomationRun
-        stmt = select(m.id, m.automation_id, m.report_id, m.status, m.trigger_source, m.retry_count,
-            m.duration_ms, m.failed_step, m.started_at, m.finished_at).where(m.automation_id == resource_id)
-        user_col, project_col, name_col = None, None, m.id
     else:
         raise HTTPException(404, 'Unknown resource')
-    created = m.started_at if kind == 'runs' else m.created_at
+    created = m.created_at
     if filters.get('from_'):
         stmt = stmt.where(created >= filters['from_'])
     if filters.get('to'):
@@ -76,24 +66,16 @@ async def list_resources(db, kind, filters, resource_id=None):
     if filters.get('search'):
         term = '%' + filters['search'].replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_') + '%'
         parts = [name_col.ilike(term, escape='\\'), m.id.ilike(term, escape='\\')]
-        if kind != 'runs':
-            parts.append(User.email.ilike(term, escape='\\'))
+        parts.append(User.email.ilike(term, escape='\\'))
         stmt = stmt.where(or_(*parts))
     for key, column in [('user_id', user_col), ('project_id', project_col)]:
         if filters.get(key) and column is not None:
             stmt = stmt.where(column == filters[key])
     if filters.get('status'):
         status = filters['status']
-        if kind == 'automations':
-            if status not in ('active', 'paused'):
-                raise HTTPException(422, 'Status must be active or paused')
-            stmt = stmt.where(m.is_active == (status == 'active'))
-        elif kind == 'runs':
-            stmt = stmt.where(m.status == status)
-        else:
-            raise HTTPException(422, 'Status filter is unavailable for this resource')
+        raise HTTPException(422, 'Status filter is unavailable for this resource')
     total = (await db.execute(select(func.count()).select_from(stmt.subquery()))).scalar_one()
-    sort = filters.get('sort') or ('started_at' if kind == 'runs' else 'created_at')
+    sort = filters.get('sort') or 'created_at'
     sorts = {col.key: col for col in stmt.selected_columns}
     if sort not in sorts:
         raise HTTPException(422, 'Unsupported sort field')
@@ -103,10 +85,6 @@ async def list_resources(db, kind, filters, resource_id=None):
     for row in items:
         if kind == 'templates':
             row['allowed_actions'] = ['unpublish'] if row['is_public'] and not row['is_system'] else []
-        elif kind == 'automations':
-            row['allowed_actions'] = ['pause' if row['is_active'] else 'resume']
-        elif kind == 'runs':
-            row['allowed_actions'] = []
     result = dict(items=items, total=total, page=page, page_size=size)
     if kind == 'storage':
         # Same filter scope as table; recorded upload bytes, not physical disk usage.
@@ -114,8 +92,6 @@ async def list_resources(db, kind, filters, resource_id=None):
         agg = (await db.execute(select(func.coalesce(func.sum(sub.c.file_size),0), func.avg(sub.c.file_size)).select_from(sub))).one()
         result['summary'] = {'recorded_upload_bytes': agg[0], 'average_file_size': agg[1], 'orphaned_files': None,
             'note': 'Database upload records only. Physical orphan reconciliation and parsing failure telemetry are unavailable.'}
-    if kind == 'runs':
-        result['limitations'] = ['Replay unavailable: no durable idempotency protection for admin retries.']
     return result
 
 
@@ -153,7 +129,6 @@ async def integrations(db, filters):
 
 
 async def system_health(db):
-    from app.services.automation.automation_scheduler import automation_scheduler
     start = perf_counter()
     try:
         await db.execute(select(literal(1)))
@@ -168,11 +143,8 @@ async def system_health(db):
             'note':'Filesystem capacity containing storage; includes other applications.'}
     except OSError:
         storage = {'status':'unavailable', 'note':'Storage filesystem probe failed.'}
-    task = automation_scheduler._loop_task
-    scheduler_running = bool(automation_scheduler._is_running and task and not task.done())
     from app.services.observability.metrics_collector import metrics_collector
     return {'checked_at': utc(datetime.now(timezone.utc)), 'api':{'status':'responding','scope':'current_process_since_start','metrics':metrics_collector.get_summary()}, 'database':database, 'storage':storage,
-        'scheduler':{'status':'running' if scheduler_running else 'stopped', 'scope':'current_process', 'active_runs':len(automation_scheduler._active_locks)},
         'worker':{'status':'unavailable', 'note':'No distributed worker heartbeat is collected.'},
         'queue':{'status':'unavailable', 'note':'No external queue depth collector is configured.'}}
 

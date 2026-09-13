@@ -14,7 +14,7 @@ export const useAdminSession = () => useContext(SessionContext);
 export const adminNav = [
   ['Tổng quan', '', ''], ['Người dùng', 'users', 'Quản lý'], ['AI Jobs', 'ai-jobs', 'Quản lý'], ['Dự án', 'projects', 'Quản lý'], ['Tài liệu', 'documents', 'Quản lý'], ['Lưu trữ', 'storage', 'Quản lý'], ['Mẫu báo cáo', 'templates', 'Quản lý'],
   ['Sử dụng AI', 'usage', 'Sử dụng & thanh toán'], ['Quota', 'quotas', 'Sử dụng & thanh toán'], ['Gói dịch vụ', 'billing/plans', 'Sử dụng & thanh toán'], ['Thanh toán', 'payments', 'Sử dụng & thanh toán'], ['Đăng ký dịch vụ', 'billing', 'Sử dụng & thanh toán'],
-  ['Tự động hóa', 'automations', 'Vận hành'], ['Tích hợp', 'integrations', 'Vận hành'], ['Hệ thống', 'system', 'Vận hành'], ['Nhật ký', 'audit-logs', 'Vận hành'],
+  ['Tích hợp', 'integrations', 'Vận hành'], ['Hệ thống', 'system', 'Vận hành'], ['Nhật ký', 'audit-logs', 'Vận hành'],
   ['Cấu hình AI', 'ai-config', 'Cấu hình'], ['Nhà cung cấp', 'providers', 'Cấu hình'], ['Cài đặt', 'settings', 'Cấu hình'],
 ];
 export function AdminShell({ children }: { children: React.ReactNode }) {

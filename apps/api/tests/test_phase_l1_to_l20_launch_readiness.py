@@ -1,6 +1,3 @@
-import io
-import json
-import zipfile
 import pytest
 from httpx import AsyncClient
 
@@ -13,12 +10,10 @@ from app.services.analytics.product_analytics import product_analytics
 from app.services.beta.beta_access_manager import beta_access_manager
 from app.services.demo.demo_project_service import demo_project_service
 from app.services.benchmarks.cost_benchmark_runner import cost_benchmark_runner
-from app.services.codebase.codebase_intelligence_engine import codebase_intelligence_engine
-from app.services.research.deep_research_v2 import deep_research_v2
 
 
 # ----------------------------------------------------
-# L2: END-TO-END SMOKE TESTS (FLOW A, FLOW B, FLOW C)
+# L2: END-TO-END SMOKE TEST (CORE REPORT FLOW)
 # ----------------------------------------------------
 
 @pytest.mark.asyncio
@@ -73,30 +68,6 @@ async def test_smoke_flow_a_full_report_lifecycle(client: AsyncClient):
     }, headers=headers)
     assert exp_res.status_code == 200
     assert exp_res.json()["download_url"] is not None
-
-
-@pytest.mark.asyncio
-async def test_smoke_flow_b_codebase_intelligence():
-    """FLOW B: ZIP Codebase -> Analysis -> Architecture Docs."""
-    zip_buf = io.BytesIO()
-    with zipfile.ZipFile(zip_buf, "w") as zf:
-        zf.writestr("apps/api/main.py", "from fastapi import FastAPI\napp = FastAPI()\n@app.get('/health')\ndef h(): return {'ok': True}")
-        zf.writestr("apps/api/requirements.txt", "fastapi\nuvicorn\npydantic\n")
-    zip_bytes = zip_buf.getvalue()
-
-    result = await codebase_intelligence_engine.analyze_codebase_archive(zip_bytes, "smoke_app.zip")
-    assert "code_graph" in result
-    assert "FastAPI" in result["code_graph"]["frameworks"]
-    assert "technical_documentation" in result
-
-
-@pytest.mark.asyncio
-async def test_smoke_flow_c_deep_research_v2():
-    """FLOW C: Research Report -> Deep Research -> Evidence Graph."""
-    graph = await deep_research_v2.execute_iterative_research("Kiến trúc Microservices 2026", max_hops=2)
-    assert len(graph.evidence_nodes) >= 3
-    assert graph.total_sources_cross_checked >= 3
-    assert len(graph.synthesis_report) > 10
 
 
 # ----------------------------------------------------

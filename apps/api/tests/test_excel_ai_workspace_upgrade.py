@@ -233,8 +233,11 @@ async def test_workbook_chat_routes_numeric_filters_before_text_search(tmp_path)
     )
     assert highlighted["intent"] == "filter_rows"
     assert highlighted["result"]["matched_count"] == 4
-    assert highlighted["actions"][0]["type"] == "HIGHLIGHT_CELLS"
-    assert highlighted["actions"][0]["cells"] == ["E2", "E3", "E4", "E5"]
+    assert highlighted["actions"] == []
+    assert highlighted["pending_actions"][0]["type"] == "HIGHLIGHT_ROWS"
+    assert highlighted["pending_actions"][0]["requires_confirmation"] is True
+    assert highlighted["pending_actions"][0]["rows"] == [2, 3, 4, 5]
+    assert highlighted["pending_actions"][0]["cells"] == ["E2", "E3", "E4", "E5"]
 
     ranged = await workbook_chat_service.chat(
         file_path=file_path,
@@ -407,7 +410,9 @@ async def test_workbook_analysis_action_runs_structured_jobs(tmp_path):
     )
     assert blank["context"]["ranges"] == ["G2:G6"]
     assert blank["result"]["missing_count"] == 3
-    assert blank["actions"][0]["type"] == "HIGHLIGHT_CELLS"
+    assert blank["actions"] == []
+    assert blank["pending_actions"][0]["type"] == "HIGHLIGHT_CELLS"
+    assert blank["pending_actions"][0]["requires_confirmation"] is True
 
     outlier = await workbook_chat_service.analyze_action(
         file_path=file_path,

@@ -661,8 +661,8 @@ async def test_workbook_chat_service_duplicate_query_and_actions(tmp_path):
 
     assert "HN Chính T8" in res["context"]["sheet"]
     assert res["result"]["duplicate_count"] == 1
-    assert len(res["actions"]) == 1
-    action = res["actions"][0]
+    assert len(res["pending_actions"]) == 1
+    action = res["pending_actions"][0]
     assert action["type"] == "HIGHLIGHT_CELLS"
     assert "H6" in action["cells"]
     assert "I15" in action["cells"]
@@ -675,8 +675,8 @@ async def test_workbook_chat_service_duplicate_query_and_actions(tmp_path):
         sheet_name="HN Chính T8",
         conversation_id="conv_test_123",
     )
-    assert len(res_clear["actions"]) == 1
-    assert res_clear["actions"][0]["type"] == "CLEAR_HIGHLIGHTS"
+    assert len(res_clear["pending_actions"]) == 1
+    assert res_clear["pending_actions"][0]["type"] == "CLEAR_HIGHLIGHTS"
 
 
 @pytest.mark.asyncio
@@ -712,7 +712,7 @@ async def test_api_workbook_chat_and_apply_modifications(client: AsyncClient, tm
     chat_data = chat_res.json()
     assert chat_data["ok"] is True
     assert chat_data["result"]["duplicate_count"] == 1
-    assert len(chat_data["actions"]) >= 1
+    assert len(chat_data["pending_actions"]) >= 1
 
     # 2. Test POST /apply-modifications
     buf.seek(0)
@@ -785,7 +785,7 @@ async def test_api_workbook_analysis_action_endpoint(client: AsyncClient):
     assert payload["context"]["ranges"] == ["C2:C4"]
     assert payload["result"]["missing_count"] == 2
     assert payload["evidence"]["operation"] == "FIND_MISSING"
-    assert payload["actions"][0]["type"] == "HIGHLIGHT_CELLS"
+    assert payload["pending_actions"][0]["type"] == "HIGHLIGHT_CELLS"
 
 
 @pytest.mark.asyncio
@@ -998,10 +998,10 @@ async def test_workbook_chat_voice_prompt_and_dslx_sheet(tmp_path):
 
     assert res["context"]["sheet"] == "dslx"
     assert res["result"]["duplicate_count"] == 1
-    assert len(res["actions"]) >= 1
-    assert res["actions"][0]["type"] == "HIGHLIGHT_CELLS"
-    assert "H6" in res["actions"][0]["cells"]
-    assert "I10" in res["actions"][0]["cells"]
+    assert len(res["pending_actions"]) >= 1
+    assert res["pending_actions"][0]["type"] == "HIGHLIGHT_CELLS"
+    assert "H6" in res["pending_actions"][0]["cells"]
+    assert "I10" in res["pending_actions"][0]["cells"]
 
 
 def test_sheet_resolution_exact_and_diacritic_rules():

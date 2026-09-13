@@ -1,12 +1,14 @@
 # AI REPORT STUDIO 
 
-> **Document Operating System** — Nền tảng tạo và biên tập báo cáo học thuật, đồ án và dữ liệu thông minh cao cấp kết hợp giữa Tiptap Editor A4 Canvas, Research Engine chống Hallucination và bộ xuất bản DOCX chuẩn XML trường học.
+> Không gian tạo báo cáo tập trung cho công việc quản trị, phân tích dữ liệu và nghiên cứu có dẫn chứng, kết hợp trình soạn thảo A4, nguồn tham khảo và xuất bản DOCX/PDF.
+
+Luồng làm việc chính gồm 7 điểm đến: **Tổng quan, Tạo mới, Dự án, Dữ liệu, Nghiên cứu, Mẫu và Cài đặt**. Báo cáo nằm trong Dự án, thư viện nguồn nằm trong Nghiên cứu và bộ nhận diện nằm trong Cài đặt. Các liên kết cũ `/documents`, `/sources` và `/brand-kit` tự chuyển sang vị trí mới.
 
 ---
 
 ## 🏛️ Kiến Trúc Hệ Thống (Clean Architecture)
 
-- **Frontend**: Next.js 15 (App Router), React 19, TypeScript, TailwindCSS, shadcn/ui, Tiptap, Zustand, TanStack Query.
+- **Frontend**: Next.js 16 (App Router), React 19, TypeScript, Tailwind CSS 4, shadcn/ui, Tiptap, Zustand, TanStack Query.
 - **Backend API**: FastAPI (Python 3.11+ / 3.14), SQLAlchemy 2.0 Async, Pydantic v2.
 - **Database**: SQLite (Async aiosqlite cho Dev) / PostgreSQL 16 (AsyncPG cho Production).
 - **Core Modules**:
@@ -15,6 +17,8 @@
   - `Citation Engine`: IEEE, APA 7, Harvard, MLA; Anti-hallucination claim-to-evidence verification mapping.
   - `AI Provider Engine`: Abstraction hỗ trợ Gemini, OpenAI, Anthropic, Ollama.
   - `Export Engine`: High-fidelity DOCX & PDF generation.
+
+Các thử nghiệm tự động hóa báo cáo, cộng tác, chấm xác suất AI, tạo báo cáo từ file âm thanh, Presentation Studio, Codebase Intelligence, Document Designer, OCR bố cục nâng cao và Deep Research V2 đã được rút khỏi runtime để tập trung độ tin cậy cho luồng cốt lõi. Bảng dữ liệu lịch sử vẫn được giữ nguyên để không làm mất bản ghi cũ.
 
 ---
 

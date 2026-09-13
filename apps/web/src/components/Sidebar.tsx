@@ -7,14 +7,10 @@ import {
   LayoutDashboard,
   PlusCircle,
   FolderKanban,
-  FileText,
   Layers,
   Database,
-  Search,
   Globe,
-  Palette,
   Settings,
-  Sparkles,
   ChevronLeft,
   ChevronRight,
   Shield,
@@ -25,6 +21,7 @@ import { cn } from "@/lib/utils";
 import { isSidebarItemActive } from "@/lib/sidebarNav";
 import { useTranslation } from "@/i18n/I18nContext";
 import { useAuthStore } from "@/stores/useAuthStore";
+import { getWorkspaceNavigation, type WorkspaceRouteKey } from "@/lib/productFocus";
 
 type SidebarProps = {
   collapsed: boolean;
@@ -63,23 +60,18 @@ export function Sidebar({ collapsed, onCollapsedChange }: SidebarProps) {
     };
   }, [isAccountMenuOpen]);
 
-  const navItems = [
-    { key: "home", href: "/", icon: LayoutDashboard, label: t("navigation.home") },
-    { key: "new", href: "/projects/new", icon: PlusCircle, label: t("navigation.new"), highlight: true },
-    { key: "projects", href: "/projects", icon: FolderKanban, label: t("navigation.projects") },
-    { key: "documents", href: "/documents", icon: FileText, label: t("navigation.documents") },
-    { key: "templates", href: "/templates", icon: Layers, label: t("navigation.templates") },
-    { key: "data", href: "/data", icon: Database, label: t("navigation.data") },
-    { key: "automations", href: "/automations", icon: Sparkles, label: t("navigation.automations") },
-    { key: "sources", href: "/sources", icon: Search, label: t("navigation.sources") },
-    { key: "research", href: "/research", icon: Globe, label: t("navigation.research") },
-    { key: "brandKit", href: "/brand-kit", icon: Palette, label: t("navigation.brandKit") },
-    { key: "settings", href: "/settings", icon: Settings, label: t("navigation.settings") },
-  ];
-
-  if (user?.is_superuser || user?.role === "admin") {
-    navItems.push({ key: "admin", href: "/admin", icon: Shield, label: t("navigation.admin") });
-  }
+  const routeMeta: Record<WorkspaceRouteKey, { icon: typeof LayoutDashboard; label: string; highlight?: boolean }> = {
+    home: { icon: LayoutDashboard, label: t("navigation.home") },
+    new: { icon: PlusCircle, label: t("navigation.new"), highlight: true },
+    projects: { icon: FolderKanban, label: t("navigation.projects") },
+    data: { icon: Database, label: t("navigation.data") },
+    research: { icon: Globe, label: t("navigation.research") },
+    templates: { icon: Layers, label: t("navigation.templates") },
+    settings: { icon: Settings, label: t("navigation.settings") },
+    admin: { icon: Shield, label: t("navigation.admin") },
+  };
+  const navItems = getWorkspaceNavigation(Boolean(user?.is_superuser || user?.role === "admin"))
+    .map((route) => ({ ...route, ...routeMeta[route.key] }));
 
   const displayName = user?.name || "Kỹ sư VIP Pro";
   const displayPlan = user?.plan ? (user.plan === "pro" ? "Enterprise" : user.plan) : "Enterprise";

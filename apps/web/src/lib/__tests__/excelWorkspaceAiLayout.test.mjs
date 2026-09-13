@@ -109,7 +109,6 @@ test("chat highlights honor colors requested in the user's message", () => {
   assert.match(source, /requestedHighlightColor\.isExplicit/);
   assert.match(source, /onHighlightColorChange\?\.\(requestedHighlightColor\.color\)/);
   assert.match(source, /highlightColor: requestedHighlightColor\.color/);
-  assert.match(source, /const actionColor = requestedHighlightColor\.isExplicit \? requestedHighlightColor\.color : \(action\.color \|\| requestedHighlightColor\.color\)/);
   assert.doesNotMatch(source, /onHighlightCells\(\s*activeSheetName,\s*msg\.result\.matched_cells\.map\(\(c: any\) => c\.address\),\s*"#FEF08A"/);
 });
 

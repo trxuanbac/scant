@@ -30,7 +30,6 @@ import {
   Table as TableIcon,
   Sparkles,
   Sigma,
-  Activity,
   GitBranch,
   Wand2,
   Undo2,
@@ -56,12 +55,9 @@ import {
   Globe2,
   Loader2,
   X,
-  Check,
 } from "lucide-react";
 import { MermaidViewer } from "@/components/MermaidViewer";
-import { FormulaRenderer } from "@/components/FormulaRenderer";
 import { HumanizeModal } from "@/components/HumanizeModal";
-import { StylometryCheckerModal } from "@/components/StylometryCheckerModal";
 import { API_BASE, api } from "@/lib/api";
 
 type ImagePanelMode = "upload" | "web" | "library" | null;
@@ -187,7 +183,6 @@ export function TiptapEditor({
   sectionTitle = "",
 }: TiptapEditorProps) {
   const [isHumanizeOpen, setIsHumanizeOpen] = useState(false);
-  const [isStylometryOpen, setIsStylometryOpen] = useState(false);
   const [activeSelectedText, setActiveSelectedText] = useState("");
   const [activeRibbon, setActiveRibbon] = useState<"home" | "insert" | "layout" | "review" | "view">("home");
   const [zoom, setZoom] = useState(100);
@@ -560,15 +555,6 @@ export function TiptapEditor({
     setIsHumanizeOpen(true);
   };
 
-  const handleOpenStylometry = () => {
-    const sel = editor.state.doc.textBetween(
-      editor.state.selection.from,
-      editor.state.selection.to
-    ) || editor.getText();
-    setActiveSelectedText(sel);
-    setIsStylometryOpen(true);
-  };
-
   const handleApplyHumanized = (newText: string) => {
     const { from, to } = editor.state.selection;
     if (from !== to) {
@@ -871,17 +857,6 @@ export function TiptapEditor({
           <span>Mượt văn</span>
         </button>
 
-        {/* Stylometry / AI Check Button */}
-        <button
-          onClick={handleOpenStylometry}
-          className={toolbarButton()}
-          title="Kiểm tra AI Stylometry & Chống Đạo văn"
-          aria-label="Kiểm tra AI"
-        >
-          <Activity className="h-4 w-4" />
-          <span>Kiểm tra AI</span>
-        </button>
-
         {onAskAi && (
           <button
             onClick={() => {
@@ -1149,16 +1124,6 @@ export function TiptapEditor({
         onApply={handleApplyHumanized}
       />
 
-      {/* Stylometry Modal */}
-      <StylometryCheckerModal
-        text={activeSelectedText}
-        isOpen={isStylometryOpen}
-        onClose={() => setIsStylometryOpen(false)}
-        onOpenHumanize={() => {
-          setIsStylometryOpen(false);
-          setIsHumanizeOpen(true);
-        }}
-      />
     </div>
   );
 }

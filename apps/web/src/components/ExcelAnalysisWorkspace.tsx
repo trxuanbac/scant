@@ -36,6 +36,7 @@ import {
   X,
 } from "lucide-react";
 import SpreadsheetPreview, { VisualWorkbook, CellHighlightInfo } from "@/components/SpreadsheetPreview";
+import { WorkbookLedger, PersistentSpreadsheetActionCard as SpreadsheetActionCard } from "@/components/WorkbookLedger";
 import ExcelAIChatPanel from "@/components/ExcelAIChatPanel";
 import { api, resolveApiDownloadUrl } from "@/lib/api";
 import {
@@ -299,28 +300,6 @@ export default function ExcelAnalysisWorkspace({
     if (restoredSession?.analysisLayersBySheet && Object.keys(restoredSession.analysisLayersBySheet).length > 0) {
       return restoredSession.analysisLayersBySheet as Record<string, AnalysisLayer[]>;
     }
-    if (initialAnalysisResult && initialAnalysisResult.actions?.length) {
-      const sheet = initialAnalysisResult.context?.sheet || initialAnalysis?.sheet_name || "Sheet1";
-      const cells = initialAnalysisResult.actions.flatMap((a: any) => a.cells || []);
-      if (cells.length) {
-        return {
-          [sheet]: [
-            {
-              id: `layer_init_${Date.now()}`,
-              sheet,
-              prompt: initialAnalysisPrompt || "Phân tích ban đầu",
-              color: "#FEF08A",
-              colorName: "Vàng",
-              borderColor: "#CA8A04",
-              cells,
-              matchedDetails: initialAnalysisResult.result?.matched_cells || [],
-              createdAt: new Date(),
-              visible: true,
-            },
-          ],
-        };
-      }
-    }
     return {};
   });
 
@@ -328,6 +307,7 @@ export default function ExcelAnalysisWorkspace({
   const [scrollToCellAddress, setScrollToCellAddress] = useState<string | null>(null);
   const [analysisPrompt, setAnalysisPrompt] = useState(restoredSession?.analysisPrompt || initialAnalysisPrompt || "");
   const [activeHighlightColor, setActiveHighlightColor] = useState<string>(restoredSession?.activeHighlightColor || "#FEF08A");
+  const conversationKey = useRef<string | null>(null);
   const [isRunningAnalysisAction, setIsRunningAnalysisAction] = useState(false);
   const [analysisActionStatus, setAnalysisActionStatus] = useState<string | null>(
     restoredSession?.analysisActionStatus ||
@@ -435,13 +415,7 @@ export default function ExcelAnalysisWorkspace({
       [sheetName]: [],
     }));
 
-    if (dataSourceUrl && (dataSourceUrl.includes("spreadsheets") || dataSourceUrl.includes("docs.google.com"))) {
-      const fd = new FormData();
-      fd.append("spreadsheet_id", dataSourceUrl);
-      fd.append("sheet_name", sheetName);
-      api.data.clearGoogleHighlights(fd).catch(() => {});
-    }
-  }, [dataSourceUrl]);
+  }, []);
 
   // Keyboard shortcut: Cmd+Shift+I or Ctrl+Shift+I toggles analysis panel
   useEffect(() => {
@@ -462,7 +436,7 @@ export default function ExcelAnalysisWorkspace({
         id: `layer_${Date.now()}`,
         sheet: sheetName,
         prompt: reason,
-        color: preset.color,
+        color,
         colorName: preset.colorName,
         borderColor: preset.borderColor,
         cells,
@@ -489,22 +463,6 @@ export default function ExcelAnalysisWorkspace({
     setTimeout(() => setScrollToCellAddress(null), 300);
   }, []);
 
-  const applyWorkbookActions = useCallback(
-    (actions: any[] = [], fallbackSheet = activeSheetName) => {
-      actions.forEach((action) => {
-        if (action.type === "HIGHLIGHT_CELLS" && action.cells?.length) {
-          handleHighlightCells(action.sheet || fallbackSheet, action.cells, action.color || "#FEF08A", "AI Analysis");
-          if (action.autoScrollTo) handleScrollToCell(action.autoScrollTo);
-        } else if (action.type === "CLEAR_HIGHLIGHTS") {
-          handleClearHighlights(action.sheet || fallbackSheet);
-        } else if (action.type === "SCROLL_TO_CELL" && action.cells?.[0]) {
-          handleScrollToCell(action.cells[0]);
-        }
-      });
-    },
-    [activeSheetName, handleClearHighlights, handleHighlightCells, handleScrollToCell]
-  );
-
   // Apply initial analysis result actions on mount or when changed
   useEffect(() => {
     if (initialAnalysisResult) {
@@ -513,16 +471,9 @@ export default function ExcelAnalysisWorkspace({
         ...prev,
         [sheet]: initialAnalysisResult,
       }));
-      if (initialAnalysisResult.actions?.length) {
-        applyWorkbookActions(
-          initialAnalysisResult.actions,
-          sheet
-        );
-      }
     }
-  }, [initialAnalysisResult, applyWorkbookActions, activeSheetName]);
+  }, [initialAnalysisResult, activeSheetName]);
 
-  const [isUndoing, setIsUndoing] = useState(false);
   const [isExportingExcel, setIsExportingExcel] = useState(false);
   const [isInsertingDocx, setIsInsertingDocx] = useState(false);
   const [isRetryingGoogleSync, setIsRetryingGoogleSync] = useState(false);
@@ -533,11 +484,12 @@ export default function ExcelAnalysisWorkspace({
       if (!targetRes || isRetryingGoogleSync) return;
 
       const gs = targetRes.google_sync;
-      const targetCells = gs?.cells?.length
-        ? gs.cells
-        : (targetRes.actions || []).flatMap((a: any) => a.cells || []);
-
-      if (!targetCells.length) return;
+      const targetCells = [...new Set((analysisLayersBySheet[activeSheetName] || []).filter((layer) => layer.visible).flatMap((layer) => layer.cells))];
+      if (!targetCells.length) {
+        setAnalysisActionStatus(locale === "vi" ? "Hãy xem trước và xác nhận lớp tô màu trước khi đồng bộ." : "Preview and confirm a highlight layer before syncing.");
+        return;
+      }
+      if (!window.confirm(locale === "vi" ? `Ghi màu ${activeHighlightColor} vào ${targetCells.length} ô trên sheet ${activeSheetName} của Google Sheets gốc?` : `Write ${activeHighlightColor} to ${targetCells.length} cells in ${activeSheetName} on the original Google Sheet?`)) return;
 
       setIsRetryingGoogleSync(true);
       try {
@@ -548,7 +500,7 @@ export default function ExcelAnalysisWorkspace({
         fd.append("color_hex", activeHighlightColor || "#FEF08A");
 
         const out = await api.data.retryGoogleSync(fd);
-        if (out?.ok && out.synced_to_google_sheets) {
+        if (out?.ok && out.synced_to_google_sheets && out.verified_on_google_sheets) {
           setAnalysisActionStatus(
             locale === "vi"
               ? "✓ Đã đồng bộ và xác minh màu trên Google Sheets gốc thành công!"
@@ -583,7 +535,7 @@ export default function ExcelAnalysisWorkspace({
         setIsRetryingGoogleSync(false);
       }
     },
-    [activeHighlightColor, activeSheetName, dataSourceUrl, isRetryingGoogleSync, lastAnalysisResultBySheet, locale]
+    [activeHighlightColor, activeSheetName, analysisLayersBySheet, dataSourceUrl, isRetryingGoogleSync, lastAnalysisResultBySheet, locale]
   );
 
   const handlePushFindingToDocx = useCallback(async () => {
@@ -631,14 +583,9 @@ export default function ExcelAnalysisWorkspace({
         }
       });
 
-      const currentRes = lastAnalysisResultBySheet[activeSheetName];
-      if (cellsToHighlight.length === 0 && currentRes?.result?.matched_cells) {
-        const mc = currentRes.result.matched_cells;
-        mc.forEach((c: any) => {
-          const addr = getMatchedCellAddress(c);
-          if (addr && !cellsToHighlight.includes(addr)) cellsToHighlight.push(addr);
-        });
-      }
+      if (!cellsToHighlight.length) throw new Error(locale === "vi" ? "Hãy xác nhận lớp tô màu trước khi xuất XLSX." : "Confirm a highlight layer before exporting XLSX.");
+      const colors = new Set(activeLayers.filter((layer) => layer.visible && layer.cells.length).map((layer) => layer.color));
+      if (colors.size > 1) throw new Error(locale === "vi" ? "Mỗi lần xuất hiện hỗ trợ một màu. Hãy ẩn các lớp màu khác trước khi xuất." : "Export currently supports one color. Hide other color layers first.");
 
       const fd = new FormData();
       if (file) {
@@ -669,27 +616,7 @@ export default function ExcelAnalysisWorkspace({
     } finally {
       setIsExportingExcel(false);
     }
-  }, [activeHighlightColor, activeSheetName, analysisLayersBySheet, dataSourceUrl, file, fileId, lastAnalysisResultBySheet, locale]);
-
-  const handleUndoLastAction = useCallback(async () => {
-    setIsUndoing(true);
-    try {
-      const fd = new FormData();
-      fd.append("session_id", `excel_analysis_${activeSheetName}`);
-      if (dataSourceUrl) fd.append("spreadsheet_id", dataSourceUrl);
-      const res = await api.data.actionUndo(fd);
-      if (res.ok) {
-        setAnalysisActionStatus(locale === "vi" ? `Đã hoàn tác ${res.restored_count || 0} ô.` : `Reverted ${res.restored_count || 0} cells.`);
-        handleClearAllLayers(activeSheetName);
-      } else {
-        setAnalysisActionStatus(res.message || (locale === "vi" ? "Không thể hoàn tác." : "Could not undo."));
-      }
-    } catch (err: any) {
-      setAnalysisActionStatus(locale === "vi" ? `Lỗi hoàn tác: ${err.message}` : `Undo error: ${err.message}`);
-    } finally {
-      setIsUndoing(false);
-    }
-  }, [activeSheetName, dataSourceUrl, handleClearAllLayers, locale]);
+  }, [activeHighlightColor, activeSheetName, analysisLayersBySheet, dataSourceUrl, file, fileId, locale]);
 
   const handleRunAnalysisAction = useCallback(
     async (promptOverride?: string) => {
@@ -718,7 +645,8 @@ export default function ExcelAnalysisWorkspace({
         const shouldUseSelectedRange = analysisScope.type === "sheet" && analysisScope.sheet === activeSheetName && shouldUseSelectedRangeForAnalysis(prompt, selectedRange);
         if (shouldUseSelectedRange) formData.append("selected_range", selectedRange as string);
         formData.append("highlight_color", resolvedHighlightColor);
-        formData.append("conversation_id", `excel_analysis_${JSON.stringify(analysisScope)}`);
+        conversationKey.current ||= crypto.randomUUID();
+      formData.append("conversation_id", conversationKey.current);
 
         const res = await api.data.workbookAnalysisAction(formData);
         const resolvedSheet = res.context?.sheet && res.context.sheet !== "workbook" && res.context.sheet !== "multiple_sheets"
@@ -731,47 +659,6 @@ export default function ExcelAnalysisWorkspace({
         }));
         setAnalysisHistory((prev) => [res.analysis_history_item || { prompt, sheet: resolvedSheet }, ...prev].slice(0, 8));
 
-        const layerSheets = new Set<string>((res.actions || []).map((action: { sheet?: string }) => action.sheet || resolvedSheet));
-        for (const layerSheet of layerSheets) {
-        // Create and record an AnalysisLayer with the chosen / auto-rotated color
-        const existingLayers = analysisLayersBySheet[layerSheet] || [];
-        const nextPreset = COLOR_ROTATION_PRESETS[existingLayers.length % COLOR_ROTATION_PRESETS.length];
-        const chosenColor = resolvedHighlightColor || nextPreset.color;
-        const preset = COLOR_ROTATION_PRESETS.find((p) => p.color === chosenColor) || nextPreset;
-        const matchedCells = (res.actions || []).filter((action: any) => (action.sheet || resolvedSheet) === layerSheet).flatMap((action: any) => action.cells || []);
-
-        if (matchedCells.length > 0) {
-          const newLayer: AnalysisLayer = {
-            id: `layer_${Date.now()}`,
-            sheet: layerSheet,
-            prompt,
-            color: preset.color,
-            colorName: preset.colorName,
-            borderColor: preset.borderColor,
-            cells: matchedCells,
-            matchedDetails: res.result?.matched_cells || [],
-            googleSync: res.google_sync ? {
-              isGoogleSheet: Boolean(res.google_sync.is_google_sheet),
-              spreadsheetId: res.google_sync.spreadsheet_id,
-              sheetId: res.google_sync.sheet_id,
-              synced: Boolean(res.google_sync.synced_to_google_sheets),
-              verified: Boolean(res.google_sync.verified_on_google_sheets),
-              error: res.google_sync.google_sync_error,
-            } : undefined,
-            createdAt: new Date(),
-            visible: true,
-          };
-          setAnalysisLayersBySheet((prev) => ({
-            ...prev,
-            [layerSheet]: [newLayer, ...(prev[layerSheet] || [])],
-          }));
-          if (layerSheet === resolvedSheet && (res.actions?.[0]?.autoScrollTo || matchedCells[0])) {
-            handleScrollToCell(res.actions?.[0]?.autoScrollTo || matchedCells[0]);
-          }
-        }
-
-        }
-
         setAnalysisActionStatus(res.answer || (locale === "vi" ? "Đã chạy phân tích thành công." : "Analysis complete."));
       } catch (err: any) {
         setAnalysisActionStatus(
@@ -783,7 +670,7 @@ export default function ExcelAnalysisWorkspace({
         setIsRunningAnalysisAction(false);
       }
     },
-    [activeHighlightColor, activeSheetName, analysisLayersBySheet, analysisPrompt, analysisScope, dataSourceUrl, file, fileId, handleScrollToCell, isRunningAnalysisAction, locale, selectedRange]
+    [activeHighlightColor, activeSheetName, analysisPrompt, analysisScope, dataSourceUrl, file, fileId, isRunningAnalysisAction, locale, selectedRange]
   );
 
   useEffect(() => {
@@ -939,6 +826,21 @@ export default function ExcelAnalysisWorkspace({
   }, [currentAnalysis]);
 
   return (
+    <WorkbookLedger file={file} fileId={fileId} dataSourceUrl={dataSourceUrl} locale={locale} onRestore={(layers) => {
+      const restored: Record<string, AnalysisLayer[]> = {};
+      for (const layer of layers) {
+        (restored[layer.sheet] ||= []).push({ id: layer.id, sheet: layer.sheet, cells: layer.cells, color: layer.color, colorName: layer.color, borderColor: layer.color, prompt: layer.label || "Saved action", visible: true, createdAt: new Date() });
+      }
+      setAnalysisLayersBySheet((previous) => {
+        // Keep older local-only layers; normalize newly saved matching layers to ledger IDs.
+        for (const [sheet, entries] of Object.entries(previous)) {
+          const saved = restored[sheet] || [];
+          const legacy = entries.filter((layer) => layer.id.startsWith("layer_") && !saved.some((item) => item.color === layer.color && JSON.stringify(item.cells) === JSON.stringify(layer.cells)));
+          if (legacy.length) restored[sheet] = [...legacy, ...saved];
+        }
+        return restored;
+      });
+    }}>
     <div className="flex flex-col rounded-xl border border-slate-200 bg-white shadow-xs font-sans overflow-hidden">
       {dataSourceUrl?.includes("docs.google.com/spreadsheets") && <div className="px-4"><GoogleDataConnection /></div>}
       {/* 1. Header Workspace (2 Tầng rõ ràng theo phong cách SaaS tối giản) */}
@@ -1182,6 +1084,29 @@ export default function ExcelAnalysisWorkspace({
           )}
 
           {/* Analysis Findings Banner directly above Spreadsheet (Insight banner nhỏ ~56-72px) */}
+          {lastAnalysisResult && <div className="space-y-2 px-4 py-2">
+            {(lastAnalysisResult.pending_actions || []).map((action: any, index: number) => {
+              const sheet = action.sheet || activeSheetName;
+              const columns = visualWorkbook?.sheets.find((item) => item.name === sheet)?.max_column || 0;
+              const rows: number[] = action.rows || [];
+              const supported = ["HIGHLIGHT_CELLS", "HIGHLIGHT_ROWS", "CLEAR_HIGHLIGHTS"].includes(action.type);
+              const bounded = rows.length * columns <= 50000;
+              const cells: string[] = action.type === "HIGHLIGHT_ROWS" && columns && bounded
+                ? rows.flatMap((row) => Array.from({ length: columns }, (_, column) => {
+                    let n = column + 1; let letter = "";
+                    while (n > 0) { n--; letter = String.fromCharCode(65 + n % 26) + letter; n = Math.floor(n / 26); }
+                    return `${letter}${row}`;
+                  })) : action.cells || [];
+              const clear = action.type === "CLEAR_HIGHLIGHTS";
+              const unavailable = !supported || !bounded || (action.type === "HIGHLIGHT_ROWS" && !columns) || (!clear && !cells.length)
+                ? (locale === "vi" ? "Chưa xác định được phạm vi an toàn để áp dụng." : "A safe target is unavailable.") : undefined;
+              return <SpreadsheetActionCard key={action.id || `${sheet}-${index}`} label={action.label || action.type} sheet={sheet} cells={cells} rows={rows} color={action.color || activeHighlightColor} clear={clear} locale={locale} unavailable={unavailable} onConfirm={() => {
+                if (clear) handleClearHighlights(sheet);
+                else handleHighlightCells(sheet, cells, action.color || activeHighlightColor, lastAnalysisResult.prompt || action.label || "AI Analysis");
+                setLastAnalysisResultBySheet((previous) => Object.fromEntries(Object.entries(previous).map(([key, value]) => [key, value === lastAnalysisResult ? { ...value, pending_actions: value.pending_actions.filter((item: any) => item !== action) } : value])));
+              }} />;
+            })}
+          </div>}
           {lastAnalysisResult && (
             <div className="mb-2 shrink-0 rounded-xl border border-amber-200/80 bg-amber-50/40 px-3 py-2 shadow-2xs">
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 min-h-[44px]">
@@ -1273,17 +1198,7 @@ export default function ExcelAnalysisWorkspace({
                     <span>{isInsertingDocx ? (locale === "vi" ? "Đang chèn..." : "Inserting...") : (locale === "vi" ? "Chèn vào báo cáo" : "Push to Word")}</span>
                   </button>
 
-                  {/* Undo Button */}
-                  <button
-                    type="button"
-                    onClick={handleUndoLastAction}
-                    disabled={isUndoing}
-                    className="inline-flex h-7 items-center gap-1 rounded-lg bg-white border border-slate-200 px-2 text-xs font-medium text-slate-600 hover:bg-slate-50 hover:text-slate-900 transition shadow-2xs active:scale-95 disabled:opacity-50"
-                    title={locale === "vi" ? "Hoàn tác thao tác định dạng vừa thực hiện" : "Undo formatting action"}
-                  >
-                    <RefreshCw className={`h-3 w-3 text-slate-400 ${isUndoing ? "animate-spin" : ""}`} />
-                    <span>{locale === "vi" ? "Hoàn tác" : "Undo"}</span>
-                  </button>
+
 
                   {/* Dismiss Banner Button */}
                   <button
@@ -2147,6 +2062,7 @@ export default function ExcelAnalysisWorkspace({
           aria-hidden={!isChatOpen}
         >
           <ExcelAIChatPanel
+            key={`${sessionStorageKey}:${file?.size ?? ""}:${file?.lastModified ?? ""}`}
             fileName={fileName}
             file={file}
             fileId={fileId}
@@ -2169,5 +2085,6 @@ export default function ExcelAnalysisWorkspace({
         </div>
       )}
     </div>
+    </WorkbookLedger>
   );
 }

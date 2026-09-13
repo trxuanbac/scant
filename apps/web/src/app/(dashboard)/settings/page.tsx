@@ -2,13 +2,17 @@
 
 import { GoogleDataConnection } from "@/components/GoogleDataConnection";
 
-import { useState, useEffect } from "react";
-import { Settings, Cpu, ShieldCheck, Key, Save, Check, User, Globe, Moon, Sun, Monitor, CreditCard, Sparkles, Zap, CheckCircle2 } from "lucide-react";
-import { useTranslation, Locale } from "@/i18n/I18nContext";
+import { Suspense, useState, useEffect } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Cpu, ShieldCheck, Key, Save, User, Globe, Moon, Sun, Monitor, CreditCard, Sparkles, Zap, CheckCircle2, Palette } from "lucide-react";
+import { useTranslation } from "@/i18n/I18nContext";
 import { useAuthStore } from "@/stores/useAuthStore";
 import { useToast } from "@/components/Toast";
 import { VietQRPaymentModal } from "@/components/VietQRPaymentModal";
 import { API_BASE } from "@/lib/api";
+import { BrandSettingsPanel } from "@/components/BrandSettingsPanel";
+
+const SETTINGS_TABS = ["profile", "billing", "brand", "language", "ai", "security"];
 
 function applyThemeMode(theme: string) {
   if (typeof window === "undefined") return;
@@ -21,11 +25,28 @@ function applyThemeMode(theme: string) {
 }
 
 export default function SettingsPage() {
+  return (
+    <Suspense fallback={<div className="h-52 rounded-xl border border-slate-200 bg-white animate-pulse" />}>
+      <SettingsContent />
+    </Suspense>
+  );
+}
+
+function SettingsContent() {
   const { t, locale, setLocale } = useTranslation();
   const { user, updateUser } = useAuthStore();
   const toast = useToast();
+  const router = useRouter();
+  const searchParams = useSearchParams() ?? new URLSearchParams();
 
-  const [activeTab, setActiveTab] = useState("profile");
+  const requestedTab = searchParams.get("tab");
+  const [activeTab, setActiveTab] = useState(
+    requestedTab && SETTINGS_TABS.includes(requestedTab) ? requestedTab : "profile",
+  );
+
+  useEffect(() => {
+    setActiveTab(requestedTab && SETTINGS_TABS.includes(requestedTab) ? requestedTab : "profile");
+  }, [requestedTab]);
 
   // Profile Form
   const [fullName, setFullName] = useState(user?.name || "");
@@ -45,9 +66,6 @@ export default function SettingsPage() {
   // Billing Form
   const [selectedPlanForPayment, setSelectedPlanForPayment] = useState<"pro" | "enterprise" | null>(null);
 
-  // Linked accounts
-  const [linkedAccounts, setLinkedAccounts] = useState<any[]>([]);
-
   useEffect(() => {
     if (user) {
       setFullName(user.name);
@@ -56,18 +74,6 @@ export default function SettingsPage() {
       setDocLang(user.document_language || "vi");
     }
 
-    async function loadAccounts() {
-      try {
-        const token = localStorage.getItem("auth_token");
-        if (token) {
-          const accs = await fetch(`${API_BASE}/auth/accounts`, {
-            headers: { Authorization: `Bearer ${token}` }
-          }).then((r) => r.json());
-          if (Array.isArray(accs)) setLinkedAccounts(accs);
-        }
-      } catch {}
-    }
-    loadAccounts();
   }, [user]);
 
   useEffect(() => {
@@ -153,6 +159,7 @@ export default function SettingsPage() {
         {[
           { key: "profile", label: t("settings.profileTab"), icon: User },
           { key: "billing", label: t("settings.billingTab"), icon: CreditCard },
+          { key: "brand", label: t("brandKit.title"), icon: Palette },
           { key: "language", label: t("settings.languageTab"), icon: Globe },
           { key: "ai", label: t("settings.aiTab"), icon: Cpu },
           { key: "security", label: t("settings.securityTab"), icon: ShieldCheck },
@@ -161,7 +168,10 @@ export default function SettingsPage() {
           return (
             <button
               key={tab.key}
-              onClick={() => setActiveTab(tab.key)}
+              onClick={() => {
+                setActiveTab(tab.key);
+                router.replace(`/settings?tab=${tab.key}`);
+              }}
               className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg transition-colors whitespace-nowrap ${
                 activeTab === tab.key
                   ? "bg-indigo-50 text-indigo-700 font-bold"
@@ -174,6 +184,8 @@ export default function SettingsPage() {
           );
         })}
       </div>
+
+      {activeTab === "brand" && <BrandSettingsPanel embedded />}
 
       {/* Billing & VietQR Tab */}
       {activeTab === "billing" && (

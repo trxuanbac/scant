@@ -2,7 +2,7 @@
 from datetime import datetime, timedelta, timezone
 from fastapi import HTTPException
 from sqlalchemy import select, func, or_, desc, asc
-from app.models.entities import User, Project, Document, UploadedFile, Report, Job, AIUsageEvent, UserQuota, AuditLog, Automation, AuthAccount
+from app.models.entities import User, Project, Document, UploadedFile, Report, Job, AIUsageEvent, UserQuota, AuditLog, AuthAccount
 from app.core.admin_access import admin_role
 from app.services.admin.audit_service import safe_value
 
@@ -128,14 +128,12 @@ async def overview(db,start=None,end=None):
     }
     metrics=[{'key':k,'label':label,'value':cur[k],'previous':old[k],'change_pct':round((cur[k]-old[k])/old[k]*100,2) if old[k] else None,'unit':unit,'definition':definition,'href':href} for k,(label,unit,definition,href) in definitions.items()]
     storage=await db.scalar(select(func.sum(UploadedFile.file_size))) or 0
-    active=await db.scalar(select(func.count()).select_from(Automation).where(Automation.is_active.is_(True)))
     metrics.extend([
         {'key':'storage','label':'Dung lượng file đăng ký','value':storage,'unit':'bytes','previous':None,'change_pct':None,'definition':'Tổng file_size trong UploadedFile hiện tại, không phải đo dung lượng vật lý.','href':'/admin/documents'},
-        {'key':'automations','label':'Tự động hóa đang bật','value':active or 0,'unit':'count','previous':None,'change_pct':None,'definition':'Automation có is_active=true tại thời điểm truy vấn.','href':'/admin/automations'},
     ])
     user_trend=(await db.execute(select(func.date(User.created_at).label('date'),func.count().label('value')).where(*span(User.created_at,a,b)).group_by(func.date(User.created_at)).order_by(func.date(User.created_at)))).mappings().all()
     jobs=(await db.execute(select(Job.status.label('name'),func.count().label('value')).where(*span(Job.created_at,a,b)).group_by(Job.status))).mappings().all()
-    return {'period':{'from':utc(a),'to':utc(b),'previous_from':utc(prev),'previous_to':utc(a),'timezone':'UTC','end_exclusive':True},'metrics':metrics,'trends':{'users':[dict(r) for r in user_trend],'tokens':usage_data['trend'],'cost':[{'date':r['date'],'value':r['cost_usd']} for r in usage_data['trend']]},'breakdowns':{'jobs':[dict(r) for r in jobs],'features':usage_data['by_feature'],'models':usage_data['by_model']},'unavailable':['Lịch sử dung lượng vật lý và lịch sử số automation đang bật chưa được thu thập.','Usage chỉ bao gồm các tác vụ đã ghi AIUsageEvent.']}
+    return {'period':{'from':utc(a),'to':utc(b),'previous_from':utc(prev),'previous_to':utc(a),'timezone':'UTC','end_exclusive':True},'metrics':metrics,'trends':{'users':[dict(r) for r in user_trend],'tokens':usage_data['trend'],'cost':[{'date':r['date'],'value':r['cost_usd']} for r in usage_data['trend']]},'breakdowns':{'jobs':[dict(r) for r in jobs],'features':usage_data['by_feature'],'models':usage_data['by_model']},'unavailable':['Lịch sử dung lượng vật lý chưa được thu thập.','Usage chỉ bao gồm các tác vụ đã ghi AIUsageEvent.']}
 
 
 async def list_jobs(db,search=None,page=1,page_size=25,status=None,job_type=None,user_id=None,start=None,end=None,sort='created_at',order='desc'):
