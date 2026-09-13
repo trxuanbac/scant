@@ -36,7 +36,7 @@
 - The legacy signature contains the 30 tables in the checked-in SQLite baseline and excludes the seven head-only tables: `admin_configuration`, `billing_payments`, `billing_subscriptions`, `claims`, `evidences`, `image_assets`, and `workbook_actions`.
 - The legacy signature records the missing columns currently observed in `auth_accounts`, `sources`, `citations`, `automations`, and `automation_runs`; head requires every current metadata column.
 
-- [ ] **Step 1: Write failing registry tests**
+- [x] **Step 1: Write failing registry tests**
 
 ```python
 def test_target_metadata_registers_every_current_table():
@@ -52,13 +52,13 @@ def test_unknown_unversioned_schema_is_rejected():
     assert classify_unversioned_schema(snapshot) == "unknown"
 ```
 
-- [ ] **Step 2: Run the focused tests and verify RED**
+- [x] **Step 2: Run the focused tests and verify RED**
 
 Run: `cd apps/api && venv/bin/python -m pytest -q tests/test_migration_schema_registry.py`
 
 Expected: collection fails because `app.migrations.schema_registry` does not exist.
 
-- [ ] **Step 3: Add the explicit registry and immutable signatures**
+- [x] **Step 3: Add the explicit registry and immutable signatures**
 
 ```python
 @dataclass(frozen=True)
@@ -75,13 +75,13 @@ def load_target_metadata() -> MetaData:
 
 `classify_unversioned_schema` must compare table and column sets, ignore only `alembic_version` and SQLite internal tables, accept an empty database, and return `unknown` for extra or conflicting application columns.
 
-- [ ] **Step 4: Run registry tests and the model import smoke test**
+- [x] **Step 4: Run registry tests and the model import smoke test**
 
 Run: `cd apps/api && venv/bin/python -m pytest -q tests/test_migration_schema_registry.py tests/test_shared_test_fixtures.py`
 
 Expected: all pass with no network access.
 
-- [ ] **Step 5: Commit the registry**
+- [x] **Step 5: Commit the registry**
 
 ```bash
 git add apps/api/app/migrations/schema_registry.py apps/api/tests/test_migration_schema_registry.py
@@ -104,7 +104,7 @@ git commit -m "test: fingerprint migration schemas"
 
 - Alembic reads `DATABASE_URL` through `app.core.config.settings` and uses `async_engine_from_config` with `connection.run_sync`.
 - Revision `0001` creates the known legacy tables and columns on an empty database.
-- Revision `0002` adds the 22 observed legacy-missing columns, creates the seven head-only tables, makes `billing_subscriptions.payment_id` nullable when upgrading a prerelease billing schema, creates the admin/workbook indexes, and invokes the existing quota backfill without resetting customized quota rows.
+- Revision `0002` adds the 39 observed legacy-missing columns, creates the seven head-only tables, makes `billing_subscriptions.payment_id` nullable when upgrading a prerelease billing schema, creates the admin/workbook indexes, and invokes the existing quota backfill without resetting customized quota rows.
 
 - [ ] **Step 1: Add Alembic to requirements and install it in the project venv**
 
