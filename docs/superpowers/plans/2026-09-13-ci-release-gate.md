@@ -34,7 +34,7 @@
 - The wrapper runs the command directly on non-Linux developer machines unless strict CI mode is enabled.
 - The first policy test covers the wrapper. Task 2 extends the same file with workflow checks without adding a YAML dependency.
 
-- [ ] **Step 1: Write the failing CI policy tests**
+- [x] **Step 1: Write the failing CI policy tests**
 
 ```python
 def test_offline_wrapper_uses_a_required_linux_network_namespace():
@@ -44,13 +44,13 @@ def test_offline_wrapper_uses_a_required_linux_network_namespace():
     assert "SCANT_REQUIRE_NETWORK_NAMESPACE" in wrapper
 ```
 
-- [ ] **Step 2: Run the policy tests and verify RED**
+- [x] **Step 2: Run the policy tests and verify RED**
 
 Run: `cd apps/api && venv/bin/python -m pytest -q tests/test_ci_release_policy.py`
 
 Expected: failure because the isolation wrapper does not exist.
 
-- [ ] **Step 3: Implement the network isolation wrapper**
+- [x] **Step 3: Implement the network isolation wrapper**
 
 ```bash
 #!/usr/bin/env bash
@@ -78,7 +78,7 @@ exec sudo --preserve-env=PATH unshare --net env \
   SCANT_INSIDE_NETWORK_NAMESPACE=1 "$0" "$@"
 ```
 
-- [ ] **Step 4: Verify wrapper fallback and strict argument handling**
+- [x] **Step 4: Verify wrapper fallback and strict argument handling**
 
 Run: `bash scripts/run-without-network.sh bash -c 'test 4 -eq 4'`
 
@@ -86,7 +86,7 @@ Run: `bash scripts/run-without-network.sh`
 
 Expected: the first command exits 0; the second exits 2 and prints only usage text.
 
-- [ ] **Step 5: Commit the executable contract**
+- [x] **Step 5: Commit the executable contract**
 
 ```bash
 git add apps/api/tests/test_ci_release_policy.py scripts/run-without-network.sh
