@@ -1,5 +1,7 @@
 """Guarded database adoption and migration policy."""
 
+import argparse
+import asyncio
 from dataclasses import dataclass
 
 from alembic.script import ScriptDirectory
@@ -103,3 +105,32 @@ async def assert_database_at_head(database_url: str) -> None:
         raise DatabaseRevisionError(
             f"Database is stamped {expected}, but its schema shape is {state}."
         )
+
+
+async def _run_cli(action: str) -> None:
+    from app.core.config import settings
+
+    if action == "check":
+        await assert_database_at_head(settings.DATABASE_URL)
+        print({"state": "head", "revision": head_revision()})
+        return
+    result = await bootstrap_database(settings.DATABASE_URL)
+    print(
+        {
+            "initial_state": result.initial_state,
+            "initial_revision": result.initial_revision,
+            "final_revision": result.final_revision,
+            "upgraded": result.upgraded,
+        }
+    )
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="SCANT database migration guard")
+    parser.add_argument("action", choices=("bootstrap", "check"))
+    arguments = parser.parse_args()
+    asyncio.run(_run_cli(arguments.action))
+
+
+if __name__ == "__main__":
+    main()

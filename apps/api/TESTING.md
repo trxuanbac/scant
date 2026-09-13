@@ -27,10 +27,12 @@ The socket guard catches application-level Python clients. Phase 0D also blocks 
 
 ## Current verification
 
-Verified on 2026-09-12:
+Verified on 2026-09-13:
 
-- Backend default suite: 274 passed, 10 live tests skipped, 0 failed; 166 existing deprecation warnings.
-- Backend deterministic suite in reverse collection order: 274 passed, 0 failed; 166 existing deprecation warnings.
+- Backend default suite: 299 passed, 12 live tests skipped, 0 failed; 166 existing deprecation warnings.
+- Backend deterministic suite in reverse collection order: 299 passed, 12 live tests skipped, 0 failed; 166 existing deprecation warnings.
+- Alembic SQLite gate: 25 passed across schema fingerprint, revision matrix, guarded bootstrap, and startup policy checks.
+- Alembic PostgreSQL gate: 2 passed against PostgreSQL 16 in isolated temporary schemas.
 - Shared fixture stress run: four database/client modules collected twice in one process, 40 passed and 0 failed.
 - Backend live collection: 10 live tests collected without executing them.
 - Frontend unit suite: 95 passed, 0 failed, 0 skipped.
@@ -38,7 +40,14 @@ Verified on 2026-09-12:
 - ESLint: passed with 0 errors and 51 existing warnings.
 - Next.js production build: passed; Next.js reported the existing middleware convention deprecation warning.
 
-The remaining live collection consists of Crossref/arXiv/deep-research checks, research search/API checks, one real PostgreSQL integration, multi-provider anti-hallucination, DOI and URL verification, a source API flow that fetches a public page, and the policy sentinel.
+The 12-test live collection includes two Alembic PostgreSQL checks. Configure `SCANT_TEST_POSTGRES_URL` and run them explicitly:
+
+```bash
+SCANT_TEST_POSTGRES_URL=postgresql+asyncpg://user:password@localhost:5432/database \
+  venv/bin/python -m pytest --run-live -q tests/test_alembic_postgresql.py
+```
+
+Each migration test creates a uniquely named schema, runs the revision chain, and drops only that schema in teardown.
 
 The remaining local test engines are intentional because their database or application topology is the subject of the test:
 

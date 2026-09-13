@@ -62,6 +62,7 @@ async def run_async_migrations() -> None:
         configuration,
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
+        connect_args=config.attributes.get("connect_args", {}),
     )
     try:
         async with connectable.connect() as connection:

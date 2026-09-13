@@ -322,11 +322,11 @@ git commit -m "fix: stop production startup schema mutation"
 - PostgreSQL tests use `SCANT_TEST_POSTGRES_URL`; they are marked `live` and skip with an explicit reason when the variable or server is unavailable.
 - Operator commands cover backup, inspect/current, bootstrap, upgrade, check-at-head, and recovery from an unknown fingerprint.
 
-- [ ] **Step 1: Add PostgreSQL empty and legacy-upgrade tests**
+- [x] **Step 1: Add PostgreSQL empty and legacy-upgrade tests**
 
 The tests create a uniquely named temporary schema, set PostgreSQL `search_path` for the migration connection, run the same `0001 -> 0002` chain, compare metadata, verify preserved rows, and drop only that temporary schema in `finally`.
 
-- [ ] **Step 2: Run SQLite and PostgreSQL migration gates**
+- [x] **Step 2: Run SQLite and PostgreSQL migration gates**
 
 Run deterministic SQLite gate:
 
@@ -342,15 +342,15 @@ cd apps/api
 SCANT_TEST_POSTGRES_URL=postgresql+asyncpg://postgres:postgrespassword@localhost:5432/ai_report_studio_audit venv/bin/python -m pytest --run-live -q tests/test_alembic_postgresql.py
 ```
 
-- [ ] **Step 3: Document safe operator workflow**
+- [x] **Step 3: Document safe operator workflow**
 
 `MIGRATIONS.md` must state that unknown schemas are never stamped automatically, production requires a backup before bootstrap, and rollback uses a database restore because the adoption revisions do not drop user data automatically.
 
-- [ ] **Step 4: Run final release evidence**
+- [x] **Step 4: Run final release evidence**
 
 Run backend normal and reverse deterministic orders, frontend tests/typecheck/lint/build, Alembic `heads`, `history`, and `check` against a migrated temporary SQLite database.
 
-- [ ] **Step 5: Record evidence and commit documentation**
+- [x] **Step 5: Record evidence and commit documentation**
 
 ```bash
 git add apps/api/tests/test_alembic_postgresql.py apps/api/MIGRATIONS.md apps/api/TESTING.md docs/superpowers/plans/2026-09-12-alembic-migration-baseline.md

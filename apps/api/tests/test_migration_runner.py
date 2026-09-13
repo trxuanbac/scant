@@ -3,7 +3,11 @@ import importlib
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 
-from app.migrations.alembic_api import current_revision, upgrade_database
+from app.migrations.alembic_api import (
+    current_revision,
+    database_connect_args,
+    upgrade_database,
+)
 from app.migrations.runner import (
     DatabaseRevisionError,
     MigrationResult,
@@ -18,6 +22,11 @@ from app.models.admin_configuration import AdminConfiguration
 
 def sqlite_url(path) -> str:
     return f"sqlite+aiosqlite:///{path}"
+
+
+def test_postgresql_schema_name_rejects_identifier_injection():
+    with pytest.raises(ValueError, match="schema name"):
+        database_connect_args('unsafe",public; DROP SCHEMA public')
 
 
 async def remove_version_table(database_url: str) -> None:
