@@ -1,4 +1,4 @@
-"""Run: python -m app.migrations.admin_console. Additive, repeatable migration.
+"""Legacy admin helpers retained for the Alembic adoption revision.
 
 Back up the database first. Run before rolling out admin-enabled API workers.
 Existing account plans and existing quota overrides are preserved.
@@ -123,5 +123,22 @@ async def migrate(bind=engine):
         created = await conn.run_sync(backfill_missing_quotas)
     return {'quota_rows_created':created,'tables_checked':3,'indexes_checked':len(INDEXES)}
 
+
+async def main():
+    from app.core.config import settings
+    from app.migrations.runner import bootstrap_database
+
+    result = await bootstrap_database(settings.DATABASE_URL)
+    print(
+        {
+            "initial_state": result.initial_state,
+            "initial_revision": result.initial_revision,
+            "final_revision": result.final_revision,
+            "upgraded": result.upgraded,
+        }
+    )
+    return result
+
+
 if __name__=='__main__':
-    print(asyncio.run(migrate()))
+    asyncio.run(main())

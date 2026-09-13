@@ -180,7 +180,7 @@ git commit -m "feat: add audited Alembic baseline"
 - Produces: `head_revision() -> str` and `async current_revision(database_url: str) -> str | None`.
 - `MigrationResult` reports `initial_state`, `initial_revision`, `final_revision`, and `upgraded`; it contains no credentials.
 
-- [ ] **Step 1: Write failing bootstrap safety tests**
+- [x] **Step 1: Write failing bootstrap safety tests**
 
 ```python
 @pytest.mark.asyncio
@@ -197,13 +197,13 @@ async def test_bootstrap_is_repeatable_at_head(empty_database_url):
     assert second.upgraded is False
 ```
 
-- [ ] **Step 2: Run runner tests and verify RED**
+- [x] **Step 2: Run runner tests and verify RED**
 
 Run: `cd apps/api && venv/bin/python -m pytest -q tests/test_migration_runner.py`
 
 Expected: import failure for `app.migrations.runner`.
 
-- [ ] **Step 3: Implement guarded stamp-and-upgrade behavior**
+- [x] **Step 3: Implement guarded stamp-and-upgrade behavior**
 
 ```python
 async def bootstrap_database(database_url: str) -> MigrationResult:
@@ -229,17 +229,17 @@ async def bootstrap_database(database_url: str) -> MigrationResult:
 
 All Alembic command calls run in a worker thread so they do not nest event loops, and the URL is passed through Alembic config attributes rather than command-line text.
 
-- [ ] **Step 4: Bridge standalone scripts**
+- [x] **Step 4: Bridge standalone scripts**
 
 Keep reusable data/DDL helpers in `admin_console.py` for revision `0002`. Change both modules' CLI entry points to call `bootstrap_database(settings.DATABASE_URL)` and print only revision/state fields. This prevents standalone scripts and Alembic from evolving separate schemas.
 
-- [ ] **Step 5: Verify bootstrap, legacy scripts, and deterministic backend suite**
+- [x] **Step 5: Verify bootstrap, legacy scripts, and deterministic backend suite**
 
 Run: `cd apps/api && venv/bin/python -m pytest -q tests/test_migration_runner.py tests/test_admin_migration.py tests/test_workbook_action_ledger.py`
 
 Then run: `cd apps/api && venv/bin/python -m pytest -q`
 
-- [ ] **Step 6: Commit the runner**
+- [x] **Step 6: Commit the runner**
 
 ```bash
 git add apps/api/app/migrations/runner.py apps/api/app/migrations/admin_console.py apps/api/app/migrations/workbook_actions.py apps/api/tests/test_migration_runner.py

@@ -22,6 +22,9 @@ HEAD_ONLY_TABLES = frozenset(
         "workbook_actions",
     }
 )
+PRERELEASE_ADMIN_TABLES = frozenset(
+    {"admin_configuration", "billing_payments", "billing_subscriptions"}
+)
 
 LEGACY_MISSING_COLUMNS = MappingProxyType(
     {
@@ -153,3 +156,15 @@ def classify_unversioned_schema(
     if _same_shape(snapshot.tables, HEAD_TABLE_COLUMNS):
         return "head"
     return "unknown"
+
+
+def is_known_prerelease_admin_schema(snapshot: SchemaSnapshot) -> bool:
+    """Recognize the exact legacy shape after the former admin migration ran."""
+    expected = dict(LEGACY_TABLE_COLUMNS)
+    expected.update(
+        {
+            table_name: HEAD_TABLE_COLUMNS[table_name]
+            for table_name in PRERELEASE_ADMIN_TABLES
+        }
+    )
+    return _same_shape(snapshot.tables, expected)

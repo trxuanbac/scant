@@ -27,6 +27,11 @@ async def upgrade_database(
     await asyncio.to_thread(command.upgrade, config, revision)
 
 
+async def stamp_database(database_url: str, revision: str) -> None:
+    config = alembic_config(database_url)
+    await asyncio.to_thread(command.stamp, config, revision)
+
+
 async def current_revision(database_url: str) -> str | None:
     engine = create_async_engine(database_url)
     try:
