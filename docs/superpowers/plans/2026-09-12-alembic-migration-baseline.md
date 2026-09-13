@@ -98,15 +98,17 @@ git commit -m "test: fingerprint migration schemas"
 - Create: `apps/api/alembic/script.py.mako`
 - Create: `apps/api/alembic/versions/0001_legacy_baseline.py`
 - Create: `apps/api/alembic/versions/0002_current_schema.py`
+- Create: `apps/api/app/migrations/alembic_api.py`
 - Create: `apps/api/tests/test_alembic_sqlite_matrix.py`
 
 **Interfaces:**
 
 - Alembic reads `DATABASE_URL` through `app.core.config.settings` and uses `async_engine_from_config` with `connection.run_sync`.
+- `async upgrade_database(database_url: str, revision: str = "head") -> None` and `async current_revision(database_url: str) -> str | None` provide the low-level programmatic API used by tests and the guarded bootstrap runner.
 - Revision `0001` creates the known legacy tables and columns on an empty database.
 - Revision `0002` adds the 39 observed legacy-missing columns, creates the seven head-only tables, makes `billing_subscriptions.payment_id` nullable when upgrading a prerelease billing schema, creates the admin/workbook indexes, and invokes the existing quota backfill without resetting customized quota rows.
 
-- [ ] **Step 1: Add Alembic to requirements and install it in the project venv**
+- [x] **Step 1: Add Alembic to requirements and install it in the project venv**
 
 ```text
 alembic>=1.16.0,<2.0.0
@@ -114,7 +116,7 @@ alembic>=1.16.0,<2.0.0
 
 Run: `cd apps/api && venv/bin/python -m pip install "alembic>=1.16.0,<2.0.0"`
 
-- [ ] **Step 2: Write failing empty/legacy/current SQLite matrix tests**
+- [x] **Step 2: Write failing empty/legacy/current SQLite matrix tests**
 
 ```python
 @pytest.mark.asyncio
@@ -131,34 +133,34 @@ async def test_legacy_sqlite_upgrade_preserves_rows(legacy_database_url):
     assert await metadata_diff(legacy_database_url) == []
 ```
 
-- [ ] **Step 3: Run the matrix tests and verify RED**
+- [x] **Step 3: Run the matrix tests and verify RED**
 
 Run: `cd apps/api && venv/bin/python -m pytest -q tests/test_alembic_sqlite_matrix.py`
 
 Expected: failure because the Alembic configuration, revisions, and runner do not exist.
 
-- [ ] **Step 4: Configure the async Alembic environment**
+- [x] **Step 4: Configure the async Alembic environment**
 
 `env.py` must set `target_metadata = load_target_metadata()`, enable `compare_type=True`, render batch operations for SQLite, and accept a programmatic URL through `config.attributes["database_url"]`. It must not import the FastAPI app or execute application lifespan code.
 
-- [ ] **Step 5: Generate and audit revision `0001`**
+- [x] **Step 5: Generate and audit revision `0001`**
 
 Build a temporary legacy `MetaData` from the immutable signature, autogenerate against an empty SQLite database, and check in explicit `op.create_table`, `op.create_index`, and foreign-key operations. The revision body must contain no `Base.metadata.create_all`, `drop_all`, raw interpolated identifiers, or runtime settings access.
 
-- [ ] **Step 6: Generate and audit revision `0002`**
+- [x] **Step 6: Generate and audit revision `0002`**
 
 Autogenerate from a database upgraded to `0001` against `load_target_metadata()`. Keep explicit operations for the five altered legacy tables and seven new tables. Reuse `upgrade_subscription_grants(connection)` and a transaction-safe quota backfill helper from `admin_console.py`; do not call the script's engine-owning `migrate()` function from a revision.
 
-- [ ] **Step 7: Run the SQLite migration matrix**
+- [x] **Step 7: Run the SQLite migration matrix**
 
 Run: `cd apps/api && venv/bin/python -m pytest -q tests/test_alembic_sqlite_matrix.py tests/test_admin_migration.py tests/test_workbook_action_ledger.py`
 
 Expected: empty, legacy, already-head, repeat-upgrade, prerelease billing, workbook persistence, and row-preservation cases all pass.
 
-- [ ] **Step 8: Commit the Alembic chain**
+- [x] **Step 8: Commit the Alembic chain**
 
 ```bash
-git add apps/api/requirements.txt apps/api/alembic.ini apps/api/alembic apps/api/tests/test_alembic_sqlite_matrix.py
+git add apps/api/requirements.txt apps/api/alembic.ini apps/api/alembic apps/api/app/migrations/alembic_api.py apps/api/tests/test_alembic_sqlite_matrix.py
 git commit -m "feat: add audited Alembic baseline"
 ```
 

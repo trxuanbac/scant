@@ -94,6 +94,7 @@ def load_target_metadata() -> MetaData:
     import app.models.admin_configuration  # noqa: F401
     import app.models.entities  # noqa: F401
     import app.models.workbook_action  # noqa: F401
+    import app.migrations.admin_console  # noqa: F401
 
     return Base.metadata
 
