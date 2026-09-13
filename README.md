@@ -91,13 +91,21 @@ npm run dev
 ### 3. Chạy Test Suite
 
 ```bash
-# Backend Pytest
-PYTHONPATH=apps/api ./apps/api/venv/bin/pytest apps/api/tests
+# Backend deterministic (không gọi Internet/provider thật)
+cd apps/api
+venv/bin/python -m pytest -q
+cd ../..
 
-# Frontend Typecheck & Build
+# Frontend test, typecheck, lint và production build
+npm --prefix apps/web test
 npm --prefix apps/web run typecheck
+npm --prefix apps/web run lint
 npm --prefix apps/web run build
 ```
+
+GitHub Actions chạy cùng các cổng này cho mọi push và pull request. Test và
+build deterministic được đặt trong Linux network namespace không có kết nối
+ngoài; PostgreSQL migration dùng database CI cục bộ riêng.
 
 ### 4. Kiểm tra an toàn trước khi commit/push
 
@@ -121,3 +129,30 @@ bash scripts/check-secrets.sh
 git add .gitignore .env.example scripts/check-secrets.sh README.md
 git commit -m "chore(security): prevent committing secrets and generated files"
 ```
+
+### 5. Lịch sử lớp màu bảng tính
+
+Người dùng đã đăng nhập có thể xem trước, xác nhận, hủy và hoàn tác lớp màu
+trong SCANT với workbook XLSX/XLSM. Lịch sử và đề xuất đang chờ được lưu theo
+người dùng, nguồn dữ liệu và SHA-256 của nội dung file. Mở lại cùng file để
+khôi phục; file đã thay đổi cần xem trước lại. CSV và phiên khách tiếp tục dùng
+thao tác cục bộ. Việc lưu lớp màu không sửa file gốc hoặc Google Sheets.
+
+Trước khi triển khai, sao lưu database bằng công cụ tương ứng với database đang
+dùng, rồi cấu hình `DATABASE_URL` và chạy từ thư mục API:
+
+```bash
+cd apps/api
+venv/bin/python -m app.migrations.runner bootstrap  # chỉ cho lần tiếp nhận schema cũ
+venv/bin/alembic upgrade head                       # các lần triển khai tiếp theo
+venv/bin/python -m app.migrations.runner check
+```
+
+Bootstrap chỉ đóng dấu các schema SCANT đã nhận diện chính xác và từ chối schema
+lạ. Chuỗi `0001 -> 0002` đã được kiểm tra trên SQLite và PostgreSQL 16, gồm giữ
+dữ liệu cũ, bảng billing tiền phát hành, hạn mức và lịch sử workbook. Quy trình
+backup, kiểm tra và khôi phục nằm trong
+[hướng dẫn migration](apps/api/MIGRATIONS.md).
+
+Xem tiến độ, kiểm thử và các phần chưa hoàn thành trong
+[kế hoạch nâng cấp production](docs/SCANT_PRODUCTION_UPGRADE_PLAN.md).

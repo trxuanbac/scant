@@ -179,21 +179,21 @@ git commit -m "ci: enforce deterministic release gates"
 - Documents the exact local equivalents of every required CI job.
 - Replaces the obsolete workbook-only migration command with the guarded Alembic bootstrap and check commands.
 
-- [ ] **Step 1: Update operator and contributor commands**
+- [x] **Step 1: Update operator and contributor commands**
 
 Document `bash scripts/check-secrets.sh`, backend `pytest -q`, frontend test/typecheck/lint/build, the deterministic migration gate, and the opt-in PostgreSQL migration command. State that public-provider live tests remain manual.
 
-- [ ] **Step 2: Run final release evidence**
+- [x] **Step 2: Run final release evidence**
 
 Run backend normal and reverse collection order, frontend test/typecheck/lint/build, the 25-test SQLite migration gate, the two-test PostgreSQL 16 gate, `bash scripts/check-secrets.sh`, and the Alembic heads/history/check commands.
 
-Expected: 299 backend tests pass with 12 live tests skipped in both orders; 95 frontend tests pass; typecheck/build pass; lint has zero errors; both migration gates pass; secret and Alembic checks pass.
+Expected: 302 backend tests pass with 12 live tests skipped in both orders; 95 frontend tests pass; typecheck/build pass; lint has zero errors; both migration gates pass; secret and Alembic checks pass.
 
-- [ ] **Step 3: Self-review the workflow contract**
+- [x] **Step 3: Self-review the workflow contract**
 
 Confirm the workflow has no `pull_request_target`, write permission, application secret reference, public-provider live test, or deterministic test command outside the network wrapper. Confirm the PostgreSQL job scopes all DDL to its disposable CI database/schema.
 
-- [ ] **Step 4: Commit documentation and evidence**
+- [x] **Step 4: Commit documentation and evidence**
 
 ```bash
 git add apps/api/TESTING.md docs/superpowers/plans/2026-09-13-ci-release-gate.md

@@ -23,18 +23,29 @@ Test classes:
 
 New tests are deterministic by default. A live marker must describe the real dependency in the test name or docstring. Do not use `live` to hide a product regression.
 
-The socket guard catches application-level Python clients. Phase 0D also blocks container egress in CI so subprocesses and native libraries cannot bypass this policy.
+The socket guard catches application-level Python clients. CI also runs deterministic test and build commands in a Linux network namespace with no external interface, so subprocesses and native libraries cannot bypass this policy.
+
+## CI release gates
+
+`.github/workflows/ci.yml` runs on every push and pull request with read-only repository permission:
+
+- `policy`: reject tracked credentials, environment files, databases, uploads, exports, and generated caches;
+- `backend`: install dependencies, then run the full default pytest suite without external networking;
+- `frontend`: run unit tests, typecheck, the lint error gate, and the production build without external networking;
+- `migrations`: validate SQLite, PostgreSQL 16, the Alembic revision graph, and metadata drift.
+
+Public-provider live tests remain manual. The PostgreSQL migration tests are the only live-marked tests enabled by the migration job, and they use the job's disposable local service.
 
 ## Current verification
 
 Verified on 2026-09-13:
 
-- Backend default suite: 299 passed, 12 live tests skipped, 0 failed; 166 existing deprecation warnings.
-- Backend deterministic suite in reverse collection order: 299 passed, 12 live tests skipped, 0 failed; 166 existing deprecation warnings.
+- Backend default suite: 302 passed, 12 live tests skipped, 0 failed; 166 existing deprecation warnings.
+- Backend deterministic suite in reverse collection order: 302 passed, 12 live tests skipped, 0 failed; 166 existing deprecation warnings.
 - Alembic SQLite gate: 25 passed across schema fingerprint, revision matrix, guarded bootstrap, and startup policy checks.
 - Alembic PostgreSQL gate: 2 passed against PostgreSQL 16 in isolated temporary schemas.
 - Shared fixture stress run: four database/client modules collected twice in one process, 40 passed and 0 failed.
-- Backend live collection: 10 live tests collected without executing them.
+- Backend live collection: 12 live tests collected without executing them.
 - Frontend unit suite: 95 passed, 0 failed, 0 skipped.
 - TypeScript typecheck: passed.
 - ESLint: passed with 0 errors and 51 existing warnings.
