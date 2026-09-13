@@ -107,7 +107,7 @@ git commit -m "test: define CI release contract"
 - `frontend` runs `npm ci`, then test, typecheck, lint, and production build through the strict network wrapper.
 - `migrations` starts PostgreSQL 16, runs the 25-test SQLite migration gate, runs the two PostgreSQL migration tests with `--run-live`, and runs `alembic heads`, `history`, and `check` against a migrated temporary SQLite database.
 
-- [ ] **Step 1: Extend the policy test with the complete workflow contract**
+- [x] **Step 1: Extend the policy test with the complete workflow contract**
 
 ```python
 def test_ci_runs_every_release_gate_without_application_secrets():
@@ -129,19 +129,19 @@ def test_ci_runs_every_release_gate_without_application_secrets():
     assert "OPENAI_API_KEY" not in workflow
 ```
 
-- [ ] **Step 2: Run the workflow contract and verify RED**
+- [x] **Step 2: Run the workflow contract and verify RED**
 
 Run: `cd apps/api && venv/bin/python -m pytest -q tests/test_ci_release_policy.py`
 
 Expected: the wrapper test passes and the workflow contract fails because `.github/workflows/ci.yml` does not exist.
 
-- [ ] **Step 3: Add the four-job workflow with least privilege**
+- [x] **Step 3: Add the four-job workflow with least privilege**
 
 Use `actions/checkout@v7`, `actions/setup-python@v7`, and `actions/setup-node@v7`, which are the current majors documented by their official repositories. Set `persist-credentials: false` on checkout. Use Python `3.14`, Node `24`, pip/npm dependency caches, and job timeouts of 15 minutes.
 
 The backend and frontend command steps set `SCANT_REQUIRE_NETWORK_NAMESPACE=1`. The migration PostgreSQL service uses database `scant_ci`, a CI-only password, and a health check; its test URL points at `127.0.0.1:5432`.
 
-- [ ] **Step 4: Run the CI contract and secret scanner**
+- [x] **Step 4: Run the CI contract and secret scanner**
 
 Run: `cd apps/api && venv/bin/python -m pytest -q tests/test_ci_release_policy.py`
 
@@ -149,9 +149,9 @@ Run: `bash scripts/check-secrets.sh`
 
 Expected: both pass; no application credential appears in the workflow.
 
-- [ ] **Step 5: Validate YAML and migration commands locally**
+- [x] **Step 5: Validate YAML and migration commands locally**
 
-Run: `ruby -e 'require "yaml"; YAML.load_file(".github/workflows/ci.yml", aliases: true)'`
+Run: `ruby -e 'require "yaml"; YAML.load_file(".github/workflows/ci.yml")'`
 
 Run: `cd apps/api && venv/bin/alembic heads && venv/bin/alembic history`
 
@@ -159,7 +159,7 @@ Run: `cd apps/api && DATABASE_URL=sqlite+aiosqlite:////tmp/scant-ci-check.sqlite
 
 Expected: YAML parses, Alembic reports head `0002`, and check reports no new upgrade operations.
 
-- [ ] **Step 6: Commit the workflow**
+- [x] **Step 6: Commit the workflow**
 
 ```bash
 git add .github/workflows/ci.yml apps/api/tests/test_ci_release_policy.py
