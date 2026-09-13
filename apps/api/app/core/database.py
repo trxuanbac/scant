@@ -39,45 +39,13 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
             await session.close()
 
 
-def _sync_schema(sync_conn):
-    Base.metadata.create_all(sync_conn)
-    if "sqlite" in settings.DATABASE_URL:
-        try:
-            # Handle SQLite missing columns automatically
-            raw_conn = sync_conn.connection.dbapi_connection
-            if hasattr(raw_conn, "cursor"):
-                cur = raw_conn.cursor()
-                for table_name, table in Base.metadata.tables.items():
-                    try:
-                        cur.execute(f"PRAGMA table_info({table_name})")
-                        existing_cols = {row[1]: row for row in cur.fetchall()}
-                        if not existing_cols:
-                            continue
-                        for col in table.columns:
-                            if col.name not in existing_cols:
-                                col_type = "TEXT"
-                                if "int" in str(col.type).lower():
-                                    col_type = "INTEGER"
-                                elif "bool" in str(col.type).lower():
-                                    col_type = "BOOLEAN"
-                                elif "float" in str(col.type).lower():
-                                    col_type = "REAL"
-                                
-                                default_clause = ""
-                                if col.default is not None and col.default.arg is not None:
-                                    if isinstance(col.default.arg, (int, float, bool)):
-                                        default_clause = f" DEFAULT {col.default.arg}"
-                                    elif isinstance(col.default.arg, str):
-                                        default_clause = f" DEFAULT '{col.default.arg}'"
-                                
-                                sql = f"ALTER TABLE {table_name} ADD COLUMN {col.name} {col_type}{default_clause}"
-                                cur.execute(sql)
-                    except Exception:
-                        pass
-        except Exception:
-            pass
-
-
 async def init_db() -> None:
-    async with engine.begin() as conn:
-        await conn.run_sync(_sync_schema)
+    from app.migrations.runner import (
+        assert_database_at_head,
+        bootstrap_database,
+    )
+
+    if settings.AUTO_MIGRATE_DATABASE:
+        await bootstrap_database(settings.DATABASE_URL)
+    else:
+        await assert_database_at_head(settings.DATABASE_URL)

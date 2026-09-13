@@ -10,6 +10,11 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d ai_report_studio"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
     restart: unless-stopped
 
   redis:
@@ -19,22 +24,43 @@ services:
       - "6379:6379"
     restart: unless-stopped
 
+  migrate:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    image: scant-api:local
+    container_name: ai_report_studio_migrate
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://postgres:postgrespassword@postgres:5432/ai_report_studio
+      - ENVIRONMENT=production
+      - DEBUG=false
+      - AUTO_MIGRATE_DATABASE=false
+    command: alembic upgrade head
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
   api:
     build:
       context: .
       dockerfile: apps/api/Dockerfile
+    image: scant-api:local
     container_name: ai_report_studio_api
     environment:
       - DATABASE_URL=postgresql+asyncpg://postgres:postgrespassword@postgres:5432/ai_report_studio
       - ENVIRONMENT=production
       - DEBUG=false
+      - AUTO_MIGRATE_DATABASE=false
       - JWT_SECRET=${JWT_SECRET:?Set JWT_SECRET to a strong random value before starting production}
       - CORS_ORIGINS=${CORS_ORIGINS:?Set CORS_ORIGINS to a JSON list of trusted origins}
     ports:
       - "8050:8050"
     depends_on:
-      - postgres
-      - redis
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_started
     volumes:
       - ./storage:/app/storage
     restart: unless-stopped

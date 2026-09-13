@@ -264,7 +264,7 @@ git commit -m "feat: guard legacy database bootstrap"
 - Production validation rejects `AUTO_MIGRATE_DATABASE=true`.
 - `init_db()` calls `bootstrap_database` only when the flag is true; otherwise it calls `assert_database_at_head` and performs no DDL.
 
-- [ ] **Step 1: Write failing production startup policy tests**
+- [x] **Step 1: Write failing production startup policy tests**
 
 ```python
 def test_production_rejects_startup_auto_migration():
@@ -285,23 +285,23 @@ async def test_check_mode_performs_no_schema_mutation(monkeypatch):
     assert migration_spy.calls == ["assert_head"]
 ```
 
-- [ ] **Step 2: Run startup tests and verify RED**
+- [x] **Step 2: Run startup tests and verify RED**
 
 Run: `cd apps/api && venv/bin/python -m pytest -q tests/test_database_startup_policy.py`
 
-- [ ] **Step 3: Replace `_sync_schema` with the migration policy**
+- [x] **Step 3: Replace `_sync_schema` with the migration policy**
 
 Delete the SQLite PRAGMA/`ALTER TABLE` loop and its swallowed exceptions. `init_db` must delegate to the runner with `settings.DATABASE_URL`; it must never synthesize SQL from model column names.
 
-- [ ] **Step 4: Make deployment intent explicit**
+- [x] **Step 4: Make deployment intent explicit**
 
 Document `AUTO_MIGRATE_DATABASE=true` for local development and set `AUTO_MIGRATE_DATABASE=false` for the production API service. Add `apps/api/Dockerfile` with `/app` as its working directory and Alembic files copied beside the application. Add a one-shot Compose `migrate` service using the API image and command `alembic upgrade head`; configure the API with `depends_on.migrate.condition: service_completed_successfully`.
 
-- [ ] **Step 5: Verify startup policy and production configuration**
+- [x] **Step 5: Verify startup policy and production configuration**
 
 Run: `cd apps/api && venv/bin/python -m pytest -q tests/test_database_startup_policy.py tests/test_production_security.py`
 
-- [ ] **Step 6: Commit startup policy**
+- [x] **Step 6: Commit startup policy**
 
 ```bash
 git add apps/api/app/core/config.py apps/api/app/core/database.py apps/api/app/main.py apps/api/tests/test_database_startup_policy.py apps/api/Dockerfile .env.example docker-compose.yml

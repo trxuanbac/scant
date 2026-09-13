@@ -54,6 +54,7 @@ class Settings(BaseSettings):
 
     # Database (Default: Async SQLite for local dev, PostgreSQL for production)
     DATABASE_URL: str = f"sqlite+aiosqlite:///{Path(__file__).resolve().parent.parent.parent.parent / 'storage' / 'ai_report_studio.db'}"
+    AUTO_MIGRATE_DATABASE: bool = True
     
     # AI Providers Configuration
     GEMINI_API_KEY: str = ""
@@ -126,6 +127,11 @@ class Settings(BaseSettings):
             errors.append("CORS_ORIGINS must not contain '*' in production.")
         if self.DEBUG:
             errors.append("DEBUG must be false in production.")
+        if self.AUTO_MIGRATE_DATABASE:
+            errors.append(
+                "AUTO_MIGRATE_DATABASE must be false in production; "
+                "run the migration job before starting the API."
+            )
         return errors
 
     def assert_production_safety(self) -> None:
