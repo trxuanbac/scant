@@ -18,11 +18,13 @@ from app.api.v1.document_intelligence import router as document_intelligence_rou
 from app.api.v1.brand_kit import router as brand_kit_router
 from app.api.v1.assets import router as assets_router
 from app.api.v1.sources import router as sources_router
+from app.api.v1.analysis_sessions import router as analysis_sessions_router
 
 from app.api.v1.workbook_actions import router as workbook_actions_router
 
 api_router = APIRouter()
 api_router.include_router(workbook_actions_router)
+api_router.include_router(analysis_sessions_router)
 api_router.include_router(health_router)
 api_router.include_router(auth_router)
 api_router.include_router(projects_router)

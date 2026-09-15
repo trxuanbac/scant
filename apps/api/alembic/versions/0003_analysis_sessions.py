@@ -40,6 +40,7 @@ def upgrade() -> None:
         sa.UniqueConstraint(
             "user_id",
             "source_id",
+            "source_kind",
             "source_version",
             "client_key_hash",
             name="uq_analysis_sessions_owner_client_source",

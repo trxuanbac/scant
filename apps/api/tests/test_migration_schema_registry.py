@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine
+from sqlalchemy import UniqueConstraint, create_engine
 
 from app.migrations.schema_registry import (
     HEAD_TABLE_COLUMNS,
@@ -46,6 +46,18 @@ def test_target_metadata_registers_every_current_table():
     assert {"session_id", "message_id", "status", "evidence_json", "result_json", "action_ids_json"} <= set(findings.columns.keys())
     assert "analysis_session_id" in actions.columns.keys()
     assert {fk.column.table.name for fk in actions.foreign_keys if fk.parent.name == "analysis_session_id"} == {"analysis_sessions"}
+    identity_constraints = {
+        tuple(column.name for column in constraint.columns)
+        for constraint in sessions.constraints
+        if isinstance(constraint, UniqueConstraint)
+    }
+    assert (
+        "user_id",
+        "source_id",
+        "source_kind",
+        "source_version",
+        "client_key_hash",
+    ) in identity_constraints
 
 
 def test_known_empty_legacy_and_head_schemas_are_classified():
