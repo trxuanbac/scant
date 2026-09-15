@@ -136,16 +136,27 @@ def normalize_analysis_scope(
 
     mode = parsed.get("type")
     allowed_keys = {
-        "workbook": {"type"},
+        "workbook": ({"type"}, {"type", "sheets"}),
         "sheets": {"type", "sheets"},
         "sheet": {"type", "sheet"},
         "range": {"type", "sheet", "range"},
     }
-    if mode not in allowed_keys or set(parsed) != allowed_keys[mode]:
+    if mode not in allowed_keys:
         raise AnalysisScopeError("Scope phân tích có trường hoặc loại không được hỗ trợ.")
 
     if mode == "workbook":
+        if set(parsed) not in allowed_keys["workbook"]:
+            raise AnalysisScopeError("Scope phân tích có trường hoặc loại không được hỗ trợ.")
+        if "sheets" in parsed:
+            requested = parsed["sheets"]
+            if not isinstance(requested, list) or not requested:
+                raise AnalysisScopeError("Danh sách sheet của workbook không hợp lệ.")
+            resolved = tuple(_resolve_sheet(item, available_sheets) for item in requested)
+            if len(set(resolved)) != len(resolved) or set(resolved) != set(available_sheets):
+                raise AnalysisScopeError("Scope workbook phải chứa đúng toàn bộ sheet.")
         return AnalysisScope("workbook", tuple(available_sheets))
+    if set(parsed) != allowed_keys[mode]:
+        raise AnalysisScopeError("Scope phân tích có trường hoặc loại không được hỗ trợ.")
     if mode == "sheets":
         requested = parsed["sheets"]
         if not isinstance(requested, list) or not requested:

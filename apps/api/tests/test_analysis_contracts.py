@@ -54,6 +54,20 @@ def test_scope_normalizes_each_supported_mode(raw_scope, expected):
     assert normalize_analysis_scope(raw_scope, available_sheets=SHEETS).as_dict() == expected
 
 
+def test_legacy_workbook_sheet_list_must_match_the_complete_workbook():
+    scope = normalize_analysis_scope(
+        {"type": "workbook", "sheets": ["Chi phí", "Doanh thu"]},
+        available_sheets=SHEETS,
+    )
+    assert scope.as_dict() == {"mode": "workbook", "sheets": SHEETS, "range": None}
+
+    with pytest.raises(AnalysisScopeError):
+        normalize_analysis_scope(
+            {"type": "workbook", "sheets": ["Doanh thu"]},
+            available_sheets=SHEETS,
+        )
+
+
 @pytest.mark.parametrize(
     ("sheet_name", "selected_range", "expected"),
     [

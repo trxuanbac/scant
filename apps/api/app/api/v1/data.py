@@ -16,16 +16,31 @@ from app.services.data.action_engine import spreadsheet_action_engine
 from app.services.data.google_sheets_service import google_sheets_service
 from app.services.data.url_dataset_loader import url_dataset_loader
 from app.core.config import settings
-import hashlib
 from uuid import uuid4
 from urllib.parse import urlencode
 from app.services.storage.signed_url_service import signed_url_service
 from app.services.data.data_access import owned_dataset, safe_dataset_name, save_dataset, validated_highlight
 from app.services.data.analysis_source import resolve_analysis_source
-import json
+from app.services.data.analysis_contracts import (
+    AnalysisScopeError,
+    bind_analysis_evidence,
+    normalize_analysis_scope,
+)
 from fastapi.responses import FileResponse
 
 router = APIRouter(prefix="/data", tags=["data"])
+
+
+def analysis_scope_or_422(raw_scope, source, *, sheet_name=None, selected_range=None):
+    try:
+        return normalize_analysis_scope(
+            raw_scope,
+            available_sheets=list(source.sheet_names),
+            sheet_name=sheet_name,
+            selected_range=selected_range,
+        )
+    except AnalysisScopeError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 class AggregationRequest(BaseModel):
@@ -78,7 +93,13 @@ async def preview_uploaded_dataset(
     try:
         profile = data_engine.profile_dataset(str(tmp_path), sheet_range=sheet_range)
         visual_workbook = spreadsheet_visual_engine.extract_visual_workbook(str(tmp_path))
-        selected_sheet_name, _ = data_engine.parse_sheet_range(sheet_range)
+        selected_sheet_name, selected_cell_range = data_engine.parse_sheet_range(sheet_range)
+        normalized_scope = analysis_scope_or_422(
+            None,
+            source,
+            sheet_name=selected_sheet_name or (source.sheet_names[0] if selected_cell_range else None),
+            selected_range=selected_cell_range,
+        )
         initial_analysis = await sheet_analysis_service.analyze_sheet(str(tmp_path), sheet_name=selected_sheet_name)
         scanner_source_type = "google_sheets" if url_dataset_loader.is_google_sheets(url_str) else source_mode
         workbook_ctx = workbook_scanner.scan_workbook(
@@ -89,7 +110,7 @@ async def preview_uploaded_dataset(
         )
         facts = profile.get("verified_facts", [])
         key_facts = facts[:30]
-        return {
+        return bind_analysis_evidence({
             "ok": True,
             "source_mode": source_mode,
             "source_url": url_str if source_mode == "url" else "",
@@ -119,7 +140,7 @@ async def preview_uploaded_dataset(
             "visual_workbook": visual_workbook,
             "initial_analysis": initial_analysis,
             "workbook_context": workbook_ctx,
-        }
+        }, source_version=source.source_version, scope=normalized_scope)
     except HTTPException:
         raise
     except ValueError as ve:
@@ -143,12 +164,21 @@ async def analyze_specific_sheet(
     )
 
     try:
+        normalized_scope = analysis_scope_or_422(
+            None,
+            source,
+            sheet_name=sheet_name or source.sheet_names[0],
+        )
         analysis = await sheet_analysis_service.analyze_sheet(
             file_path=str(source.path),
             sheet_name=sheet_name,
             force_refresh=force_refresh,
         )
-        return {"ok": True, "analysis": analysis}
+        return bind_analysis_evidence(
+            {"ok": True, "analysis": analysis},
+            source_version=source.source_version,
+            scope=normalized_scope,
+        )
     except HTTPException:
         raise
     except Exception as e:
@@ -174,21 +204,25 @@ async def chat_with_workbook(
     )
 
     try:
-        parsed_scope = None
-        if scope:
-            try:
-                parsed_scope = json.loads(scope)
-            except json.JSONDecodeError:
-                raise HTTPException(status_code=400, detail="Scope chat không hợp lệ.")
+        normalized_scope = analysis_scope_or_422(
+            scope,
+            source,
+            sheet_name=sheet_name,
+            selected_range=selected_range,
+        )
         response = await workbook_chat_service.chat(
             file_path=str(source.path),
             message=message,
             sheet_name=sheet_name,
-            selected_range=selected_range,
+            selected_range=normalized_scope.cell_range or selected_range,
             conversation_id=f"{user_tag}:{source.source_version.version}:{conversation_id or uuid4().hex}",
-            scope=parsed_scope,
+            scope=normalized_scope.as_legacy_dict(),
         )
-        return {"ok": True, **response}
+        return bind_analysis_evidence(
+            {"ok": True, **response},
+            source_version=source.source_version,
+            scope=normalized_scope,
+        )
     except HTTPException:
         raise
     except Exception as e:
@@ -215,25 +249,29 @@ async def run_workbook_analysis_action(
     )
 
     try:
-        parsed_scope = None
-        if scope:
-            try:
-                parsed_scope = json.loads(scope)
-            except json.JSONDecodeError:
-                raise HTTPException(status_code=400, detail="Scope phân tích không hợp lệ.")
+        normalized_scope = analysis_scope_or_422(
+            scope,
+            source,
+            sheet_name=sheet_name,
+            selected_range=selected_range,
+        )
         response = await workbook_chat_service.analyze_action(
             file_path=str(source.path),
             prompt=prompt,
             sheet_name=sheet_name,
-            selected_range=selected_range,
+            selected_range=normalized_scope.cell_range or selected_range,
             conversation_id=f"{user_tag}:{source.source_version.version}:{conversation_id or uuid4().hex}",
-            scope=parsed_scope,
+            scope=normalized_scope.as_legacy_dict(),
             highlight_color=highlight_color,
             data_source_url=data_source_url,
             user=current_user,
             db=db,
         )
-        return {"ok": True, **response}
+        return bind_analysis_evidence(
+            {"ok": True, **response},
+            source_version=source.source_version,
+            scope=normalized_scope,
+        )
     except HTTPException:
         raise
     except Exception as e:
@@ -496,6 +534,7 @@ async def profile_file_dataset(
     source = await resolve_analysis_source(db, current_user, file_id=file_id)
 
     try:
+        normalized_scope = analysis_scope_or_422(None, source)
         profile = data_engine.profile_dataset(str(source.path))
         visual_workbook = spreadsheet_visual_engine.extract_visual_workbook(str(source.path))
         profile["file_id"] = source.source_version.source_id
@@ -503,7 +542,11 @@ async def profile_file_dataset(
         profile["original_name"] = source.source_version.display_name
         profile["source_version"] = source.source_version.as_dict()
         profile["visual_workbook"] = visual_workbook
-        return profile
+        return bind_analysis_evidence(
+            profile,
+            source_version=source.source_version,
+            scope=normalized_scope,
+        )
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Error analyzing dataset: {str(e)}")
 
