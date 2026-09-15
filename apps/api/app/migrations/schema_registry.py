@@ -20,6 +20,9 @@ HEAD_ONLY_TABLES = frozenset(
         "evidences",
         "image_assets",
         "workbook_actions",
+        "analysis_sessions",
+        "analysis_messages",
+        "analysis_findings",
     }
 )
 PRERELEASE_ADMIN_TABLES = frozenset(
@@ -95,6 +98,7 @@ def load_target_metadata() -> MetaData:
     """Import every model module before exposing Alembic target metadata."""
     import app.models.admin_billing  # noqa: F401
     import app.models.admin_configuration  # noqa: F401
+    import app.models.analysis_session  # noqa: F401
     import app.models.entities  # noqa: F401
     import app.models.workbook_action  # noqa: F401
     import app.migrations.admin_console  # noqa: F401

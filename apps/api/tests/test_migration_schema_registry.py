@@ -23,8 +23,21 @@ def test_target_metadata_registers_every_current_table():
         "evidences",
         "image_assets",
         "workbook_actions",
+        "analysis_sessions",
+        "analysis_messages",
+        "analysis_findings",
     }
     assert set(metadata.tables) == set(HEAD_TABLE_COLUMNS)
+
+    sessions = metadata.tables["analysis_sessions"]
+    messages = metadata.tables["analysis_messages"]
+    findings = metadata.tables["analysis_findings"]
+    actions = metadata.tables["workbook_actions"]
+    assert {"user_id", "source_id", "source_kind", "source_version", "scope_json", "client_key_hash"} <= set(sessions.columns.keys())
+    assert {"session_id", "sequence", "role", "content_text", "response_json"} <= set(messages.columns.keys())
+    assert {"session_id", "message_id", "status", "evidence_json", "result_json", "action_ids_json"} <= set(findings.columns.keys())
+    assert "analysis_session_id" in actions.columns.keys()
+    assert {fk.column.table.name for fk in actions.foreign_keys if fk.parent.name == "analysis_session_id"} == {"analysis_sessions"}
 
 
 def test_known_empty_legacy_and_head_schemas_are_classified():

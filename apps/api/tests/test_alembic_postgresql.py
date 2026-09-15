@@ -73,7 +73,7 @@ async def test_postgresql_empty_schema_upgrades_to_exact_head(postgresql_schema)
 
     await upgrade_database(database_url, schema=schema_name)
 
-    assert await current_revision(database_url, schema=schema_name) == "0002"
+    assert await current_revision(database_url, schema=schema_name) == "0003"
     assert await metadata_diff(database_url, schema_name) == []
 
 
@@ -111,5 +111,5 @@ async def test_postgresql_legacy_upgrade_preserves_rows(postgresql_schema):
         )
     await engine.dispose()
     assert email == "legacy-pg@example.com"
-    assert await current_revision(database_url, schema=schema_name) == "0002"
+    assert await current_revision(database_url, schema=schema_name) == "0003"
     assert await metadata_diff(database_url, schema_name) == []

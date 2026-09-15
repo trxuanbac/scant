@@ -48,11 +48,11 @@ async def test_bootstrap_empty_database_is_repeatable(tmp_path):
 
     assert first.initial_state == "empty"
     assert first.initial_revision is None
-    assert first.final_revision == head_revision() == "0002"
+    assert first.final_revision == head_revision() == "0003"
     assert first.upgraded is True
     assert second.initial_state == "versioned"
-    assert second.initial_revision == "0002"
-    assert second.final_revision == "0002"
+    assert second.initial_revision == "0003"
+    assert second.final_revision == "0003"
     assert second.upgraded is False
 
 
@@ -85,7 +85,7 @@ async def test_bootstrap_stamps_legacy_then_preserves_rows(tmp_path):
         )
     await engine.dispose()
     assert result.initial_state == "legacy"
-    assert result.final_revision == "0002"
+    assert result.final_revision == "0003"
     assert result.upgraded is True
     assert email == "legacy@example.com"
 
@@ -101,9 +101,9 @@ async def test_bootstrap_stamps_unversioned_head_without_replaying_ddl(tmp_path)
 
     assert result.initial_state == "head"
     assert result.initial_revision is None
-    assert result.final_revision == "0002"
+    assert result.final_revision == "0003"
     assert result.upgraded is False
-    assert await current_revision(database_url) == "0002"
+    assert await current_revision(database_url) == "0003"
 
 
 @pytest.mark.integration
@@ -142,7 +142,7 @@ async def test_assert_at_head_rejects_a_false_head_stamp(tmp_path):
     await upgrade_database(database_url, "0001")
     from app.migrations.alembic_api import stamp_database
 
-    await stamp_database(database_url, "0002")
+    await stamp_database(database_url, "0003")
 
     with pytest.raises(DatabaseRevisionError, match="schema shape"):
         await assert_database_at_head(database_url)
@@ -167,7 +167,7 @@ async def test_bootstrap_adopts_exact_prerelease_admin_schema(tmp_path):
     result = await bootstrap_database(database_url)
 
     assert result.initial_state == "legacy_prerelease_admin"
-    assert result.final_revision == "0002"
+    assert result.final_revision == "0003"
     assert result.upgraded is True
 
 
@@ -190,7 +190,7 @@ async def test_legacy_cli_uses_guarded_runner_without_printing_url(
 
     async def fake_bootstrap(received_url):
         calls.append(received_url)
-        return MigrationResult("head", None, "0002", False)
+        return MigrationResult("head", None, "0003", False)
 
     monkeypatch.setattr(runner, "bootstrap_database", fake_bootstrap)
     module = importlib.import_module(module_name)

@@ -1,14 +1,16 @@
 from pathlib import Path
+import asyncio
 from datetime import datetime, timezone
 
 import pytest
+from alembic import command
 from alembic.autogenerate import compare_metadata
 from alembic.migration import MigrationContext
 from sqlalchemy import inspect, select, text
 from sqlalchemy.schema import CreateTable
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from app.migrations.alembic_api import current_revision, upgrade_database
+from app.migrations.alembic_api import alembic_config, current_revision, upgrade_database
 from app.migrations.schema_registry import (
     classify_unversioned_schema,
     inspect_schema,
@@ -69,7 +71,7 @@ async def test_empty_sqlite_upgrades_to_exact_head(tmp_path):
 
     await upgrade_database(database_url)
 
-    assert await current_revision(database_url) == "0002"
+    assert await current_revision(database_url) == "0003"
     assert classify_unversioned_schema(await read_schema(database_url)) == "head"
     assert await read_metadata_diff(database_url) == []
 
@@ -106,7 +108,7 @@ async def test_legacy_revision_upgrades_without_losing_rows(tmp_path):
 
     assert user is not None
     assert user.email == "legacy@example.com"
-    assert await current_revision(database_url) == "0002"
+    assert await current_revision(database_url) == "0003"
     assert classify_unversioned_schema(await read_schema(database_url)) == "head"
 
 
@@ -118,7 +120,59 @@ async def test_upgrade_is_repeatable_at_head(tmp_path):
     await upgrade_database(database_url)
     await upgrade_database(database_url)
 
-    assert await current_revision(database_url) == "0002"
+    assert await current_revision(database_url) == "0003"
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_analysis_session_upgrade_and_downgrade_preserve_workbook_actions(tmp_path):
+    database_url = sqlite_url(tmp_path / "analysis-sessions.sqlite")
+    await upgrade_database(database_url, revision="0002")
+    engine = create_async_engine(database_url)
+    async with engine.begin() as connection:
+        await connection.execute(text(
+            """INSERT INTO users
+               (id, email, name, preferred_locale, theme, document_language,
+                plan, role, is_superuser, is_active, created_at, updated_at)
+               VALUES ('owner', 'owner@example.com', 'Owner', 'vi', 'system',
+                       'vi', 'free', 'user', 0, 1, CURRENT_TIMESTAMP,
+                       CURRENT_TIMESTAMP)"""
+        ))
+        await connection.execute(text(
+            """INSERT INTO workbook_actions
+               (id, user_id, source_key, source_hash, base_revision, status,
+                payload_json, preview_json, created_at)
+               VALUES ('action-1', 'owner', :hash, :hash, :hash, 'pending',
+                       '{}', '[]', CURRENT_TIMESTAMP)"""
+        ), {"hash": "a" * 64})
+    await engine.dispose()
+
+    await upgrade_database(database_url)
+
+    engine = create_async_engine(database_url)
+    async with engine.connect() as connection:
+        tables = await connection.run_sync(lambda conn: set(inspect(conn).get_table_names()))
+        session_id = await connection.scalar(text(
+            "SELECT analysis_session_id FROM workbook_actions WHERE id='action-1'"
+        ))
+    await engine.dispose()
+    assert {"analysis_sessions", "analysis_messages", "analysis_findings"} <= tables
+    assert session_id is None
+    assert await current_revision(database_url) == "0003"
+
+    await asyncio.to_thread(command.downgrade, alembic_config(database_url), "0002")
+
+    engine = create_async_engine(database_url)
+    async with engine.connect() as connection:
+        tables = await connection.run_sync(lambda conn: set(inspect(conn).get_table_names()))
+        action_columns = await connection.run_sync(
+            lambda conn: {column["name"] for column in inspect(conn).get_columns("workbook_actions")}
+        )
+        action_count = await connection.scalar(text("SELECT COUNT(*) FROM workbook_actions WHERE id='action-1'"))
+    await engine.dispose()
+    assert not {"analysis_sessions", "analysis_messages", "analysis_findings"} & tables
+    assert "analysis_session_id" not in action_columns
+    assert action_count == 1
 
 
 @pytest.mark.integration
