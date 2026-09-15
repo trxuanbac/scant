@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 const source = readFileSync(new URL("../../app/(dashboard)/data/page.tsx", import.meta.url), "utf8");
+const previewModalSource = readFileSync(new URL("../../components/PreviewModal.tsx", import.meta.url), "utf8");
 
 test("dataset page exposes search and exact saved-dataset navigation", () => {
   assert.match(source, /aria-label="Tìm tập dữ liệu"/);
@@ -24,4 +25,11 @@ test("dataset preview has retry and accessible interactive states", () => {
   assert.match(source, /Tải lại bản xem trước/);
   assert.match(source, /focus-visible:ring-2/);
   assert.match(source, /bg-indigo-600/);
+});
+
+test("dataset preview uses the large viewport modal without changing other previews", () => {
+  assert.match(source, /<PreviewModal[^>]*size="wide"/);
+  assert.match(previewModalSource, /size\?:\s*"default"\s*\|\s*"wide"/);
+  assert.match(previewModalSource, /max-w-\[min\(96rem,94vw\)\]/);
+  assert.match(previewModalSource, /max-h-\[calc\(100dvh-5rem\)\]/);
 });
