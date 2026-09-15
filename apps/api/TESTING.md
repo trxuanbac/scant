@@ -40,12 +40,13 @@ Public-provider live tests remain manual. The PostgreSQL migration tests are the
 
 Verified on 2026-09-15:
 
-- Backend default suite: 334 passed, 12 live tests skipped, 0 failed; 170 existing deprecation warnings.
-- Backend deterministic suite in reverse collection order: 334 passed, 12 live tests skipped, 0 failed; 170 existing deprecation warnings.
+- Backend default suite: 343 passed, 12 live tests skipped, 0 failed; 170 existing deprecation warnings.
+- Backend deterministic suite in reverse collection order: 343 passed, 12 live tests skipped, 0 failed; 170 existing deprecation warnings.
 - Phase 1A source/scope/evidence gate: 104 focused tests passed. Stored files, direct uploads, and linked workbooks use the SHA-256 of the exact analyzed bytes; owner checks still hide foreign file IDs.
 - Analysis preview, profile, sheet analysis, workbook chat, and deterministic actions expose an additive `analysis_context`. Dictionary evidence carries the same validated source version and workbook/sheets/sheet/range scope; legacy response fields remain available.
-- Alembic SQLite gate: 25 passed across schema fingerprint, revision matrix, guarded bootstrap, and startup policy checks.
-- Alembic PostgreSQL gate: 2 passed against PostgreSQL 16 in isolated temporary schemas.
+- Phase 1B durable-session gate: 49 focused schema, API, scope, and access-control tests passed, with 2 PostgreSQL tests skipped until the live gate. Authenticated chat/action exchanges restore with stable ordering; guests and failed analyses write no session rows; workbook actions reject foreign or stale session links.
+- Alembic SQLite/revision `0003` gate: 21 passed and 2 live checks skipped by default across schema fingerprint, revision matrix, and guarded bootstrap; one head reported, and `alembic check` found no pending schema operations after upgrading a fresh SQLite database.
+- Alembic PostgreSQL gate: 2 passed against PostgreSQL 16 in isolated temporary schemas, including fresh upgrade and legacy-row preservation through `0003`.
 - Shared fixture stress run: four database/client modules collected twice in one process, 40 passed and 0 failed.
 - Backend live collection: 12 live tests collected without executing them.
 - Frontend unit suite: 95 passed, 0 failed, 0 skipped.

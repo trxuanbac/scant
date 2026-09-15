@@ -1,6 +1,8 @@
 # Database migrations
 
-SCANT uses Alembic for SQLite development databases and PostgreSQL production databases. The current head is `0002`. Production API startup is check-only: migration runs as a separate deployment step before the API starts.
+SCANT uses Alembic for SQLite development databases and PostgreSQL production databases. The current head is `0003`. Production API startup is check-only: migration runs as a separate deployment step before the API starts.
+
+Revision `0003` is additive. It creates durable analysis sessions, ordered messages, reviewed findings, and an optional session reference on workbook actions. Existing workbook actions remain intact during upgrade. Authenticated workbook chat and analysis actions persist against the exact source SHA-256; changed source bytes create a separate session. Guest analysis remains browser-only and creates no durable session rows.
 
 ## Before every production migration
 
@@ -74,3 +76,15 @@ venv/bin/python -m app.migrations.runner check
 ```
 
 Start the API only after the check succeeds.
+
+## Restore analysis sessions
+
+The authenticated restore boundary is `/api/v1/data/analysis-sessions`:
+
+- `GET /data/analysis-sessions` lists owner-scoped sessions and accepts optional `source_id` and `source_version` filters.
+- `GET /data/analysis-sessions/{id}` restores ordered messages, findings, and workbook action IDs without source bytes or preview rows.
+- `PATCH /data/analysis-sessions/{id}/scope` validates a new workbook, sheet, sheets, or A1 range scope against the source's stored sheet catalog.
+- `POST /data/analysis-sessions/{id}/findings/{finding_id}/accept` accepts a proposed finding idempotently.
+- `POST /data/analysis-sessions/{id}/archive` archives a session idempotently.
+
+Client conversation keys are stored only as SHA-256 hashes and are never returned. Every detail, scope, finding, and archive lookup is constrained to the authenticated owner and returns `404` for foreign resources.
