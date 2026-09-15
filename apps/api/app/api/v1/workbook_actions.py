@@ -15,6 +15,7 @@ from app.core.database import get_db
 from app.models.entities import User, AuditLog
 from app.models.workbook_action import WorkbookAction
 from app.services.data.analysis_source import resolve_analysis_source
+from app.services.data.analysis_session_service import owned_session
 from app.services.data.data_access import validated_highlight
 
 router = APIRouter(prefix='/data/workbook-actions', tags=['data'])
@@ -57,6 +58,7 @@ def revision(items):
 
 def serialize(item):
     return {'id': item.id, 'status': item.status, 'source_hash': item.source_hash,
+            'analysis_session_id': item.analysis_session_id,
             'action': item.payload_json, 'preview': item.preview_json,
             'created_at': item.created_at.isoformat(), 'applied_at': item.applied_at.isoformat() if item.applied_at else None}
 
@@ -71,7 +73,7 @@ def audit(db, user, item, event):
 async def preview_action(source_key: str = Form(..., min_length=1, max_length=1000), action: str = Form(...),
                          file: Optional[UploadFile] = File(None), file_id: Optional[str] = Form(None),
                          data_source_url: Optional[str] = Form(None), user: User = Depends(get_current_user),
-                         db: AsyncSession = Depends(get_db)):
+                         analysis_session_id: Optional[str] = Form(None), db: AsyncSession = Depends(get_db)):
     try:
         spec = LayerSpec.model_validate_json(action)
     except ValidationError:
@@ -81,6 +83,11 @@ async def preview_action(source_key: str = Form(..., min_length=1, max_length=10
         spec.color = "#" + normalized_color[-6:]
     source = await source_bytes(db, user, file, file_id, data_source_url)
     content = source.content
+    analysis_session = None
+    if analysis_session_id:
+        analysis_session = await owned_session(db, user.id, analysis_session_id)
+        if analysis_session.source_version != source.source_version.version:
+            raise HTTPException(409, 'Phiên phân tích thuộc phiên bản workbook khác.')
     try:
         wb = openpyxl.load_workbook(io.BytesIO(content), read_only=True, data_only=False)
         try:
@@ -102,6 +109,7 @@ async def preview_action(source_key: str = Form(..., min_length=1, max_length=10
     digest = hashlib.sha256(content).hexdigest()
     items = await records(db, user.id, key_hash(source_key), digest)
     item = WorkbookAction(user_id=user.id, source_key=key_hash(source_key), source_hash=digest,
+                          analysis_session_id=analysis_session.id if analysis_session else None,
                           base_revision=revision(items), payload_json=spec.model_dump(), preview_json=sample)
     db.add(item)
     await db.flush()

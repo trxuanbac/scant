@@ -26,6 +26,7 @@ from app.services.data.analysis_contracts import (
     bind_analysis_evidence,
     normalize_analysis_scope,
 )
+from app.services.data.analysis_session_service import get_or_create_session, record_exchange
 from fastapi.responses import FileResponse
 
 router = APIRouter(prefix="/data", tags=["data"])
@@ -41,6 +42,27 @@ def analysis_scope_or_422(raw_scope, source, *, sheet_name=None, selected_range=
         )
     except AnalysisScopeError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+async def persist_analysis_exchange(db, user, source, scope, client_key, question, payload):
+    bound = bind_analysis_evidence(
+        payload,
+        source_version=source.source_version,
+        scope=scope,
+    )
+    if user is None:
+        return bound
+    session = await get_or_create_session(
+        db,
+        user,
+        source.source_version,
+        source.sheet_names,
+        scope,
+        client_key,
+    )
+    await record_exchange(db, session, question, bound)
+    bound["analysis_session_id"] = session.id
+    return bound
 
 
 class AggregationRequest(BaseModel):
@@ -194,11 +216,12 @@ async def chat_with_workbook(
     message: str = Form(...),
     selected_range: Optional[str] = Form(None),
     scope: Optional[str] = Form(None),
-    conversation_id: Optional[str] = Form(None),
+    conversation_id: Optional[str] = Form(None, max_length=1000),
     current_user: Optional[User] = Depends(get_current_user_optional),
     db: AsyncSession = Depends(get_db),
 ):
     user_tag = str(current_user.id) if current_user else "guest"
+    client_key = (conversation_id or "").strip() or uuid4().hex
     source = await resolve_analysis_source(
         db, current_user, file=file, file_id=file_id, data_source_url=data_source_url
     )
@@ -215,13 +238,17 @@ async def chat_with_workbook(
             message=message,
             sheet_name=sheet_name,
             selected_range=normalized_scope.cell_range or selected_range,
-            conversation_id=f"{user_tag}:{source.source_version.version}:{conversation_id or uuid4().hex}",
+            conversation_id=f"{user_tag}:{source.source_version.version}:{client_key}",
             scope=normalized_scope.as_legacy_dict(),
         )
-        return bind_analysis_evidence(
+        return await persist_analysis_exchange(
+            db,
+            current_user,
+            source,
+            normalized_scope,
+            client_key,
+            message,
             {"ok": True, **response},
-            source_version=source.source_version,
-            scope=normalized_scope,
         )
     except HTTPException:
         raise
@@ -239,11 +266,12 @@ async def run_workbook_analysis_action(
     selected_range: Optional[str] = Form(None),
     scope: Optional[str] = Form(None),
     highlight_color: Optional[str] = Form(None),
-    conversation_id: Optional[str] = Form(None),
+    conversation_id: Optional[str] = Form(None, max_length=1000),
     current_user: Optional[User] = Depends(get_current_user_optional),
     db: AsyncSession = Depends(get_db),
 ):
     user_tag = str(current_user.id) if current_user else "guest"
+    client_key = (conversation_id or "").strip() or uuid4().hex
     source = await resolve_analysis_source(
         db, current_user, file=file, file_id=file_id, data_source_url=data_source_url
     )
@@ -260,17 +288,21 @@ async def run_workbook_analysis_action(
             prompt=prompt,
             sheet_name=sheet_name,
             selected_range=normalized_scope.cell_range or selected_range,
-            conversation_id=f"{user_tag}:{source.source_version.version}:{conversation_id or uuid4().hex}",
+            conversation_id=f"{user_tag}:{source.source_version.version}:{client_key}",
             scope=normalized_scope.as_legacy_dict(),
             highlight_color=highlight_color,
             data_source_url=data_source_url,
             user=current_user,
             db=db,
         )
-        return bind_analysis_evidence(
+        return await persist_analysis_exchange(
+            db,
+            current_user,
+            source,
+            normalized_scope,
+            client_key,
+            prompt,
             {"ok": True, **response},
-            source_version=source.source_version,
-            scope=normalized_scope,
         )
     except HTTPException:
         raise
