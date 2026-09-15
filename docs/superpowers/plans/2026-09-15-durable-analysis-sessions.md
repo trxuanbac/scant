@@ -39,7 +39,7 @@
 **Interfaces:**
 
 - Produces: `AnalysisSession`, `AnalysisMessage`, and `AnalysisFinding` ORM models.
-- `AnalysisSession` stores owner, source identity/version/display fields, validated `scope_json`, hashed `client_key_hash`, title, status, and timestamps.
+- `AnalysisSession` stores owner, source identity/version/display fields, the immutable `available_sheets_json` catalog, validated `scope_json`, hashed `client_key_hash`, title, status, and timestamps.
 - `AnalysisMessage` stores session, monotonic `sequence`, role, content, structured `response_json`, and timestamp with a unique `(session_id, sequence)` constraint.
 - `AnalysisFinding` stores session/message links, status, title, summary, `evidence_json`, `result_json`, `action_ids_json`, and timestamp.
 - Adds nullable `WorkbookAction.analysis_session_id` with `ON DELETE SET NULL` and an index.
@@ -82,7 +82,7 @@ git commit -m "feat: add durable analysis session schema"
 
 **Interfaces:**
 
-- Produces: `get_or_create_session(db, user, source_version, scope, client_key) -> AnalysisSession`.
+- Produces: `get_or_create_session(db, user, source_version, available_sheets, scope, client_key) -> AnalysisSession`.
 - Produces: `record_exchange(db, session, question, response) -> tuple[AnalysisMessage, AnalysisMessage, AnalysisFinding | None]`.
 - Produces authenticated endpoints: `GET /data/analysis-sessions`, `GET /data/analysis-sessions/{id}`, `PATCH /data/analysis-sessions/{id}/scope`, `POST /data/analysis-sessions/{id}/findings/{finding_id}/accept`, and `POST /data/analysis-sessions/{id}/archive`.
 - Detail responses include session source/scope, ordered messages, findings, and linked workbook action IDs without preview/file blobs.
@@ -99,7 +99,7 @@ Expected: collection fails because the session service and router do not exist.
 
 - [ ] **Step 3: Implement service and router**
 
-Hash `client_key` with SHA-256, lock the owner row before selecting/creating or assigning the next sequence, validate stored scope through the Phase 1A contract, and return 404 for every missing/foreign resource. Create one proposed finding only when a response has dictionary evidence plus a non-empty numeric/structured result or `analysis_history_item`; greetings/help remain messages without findings. Serialize timestamps as ISO 8601 and expose no internal hash.
+Hash `client_key` with SHA-256, lock the owner row before selecting/creating or assigning the next sequence, persist the resolved source's immutable sheet catalog, validate stored scope through the Phase 1A contract, and return 404 for every missing/foreign resource. Create one proposed finding only when a response has dictionary evidence plus a non-empty numeric/structured result or `analysis_history_item`; greetings/help remain messages without findings. Serialize timestamps as ISO 8601 and expose no internal hash.
 
 - [ ] **Step 4: Run session and authorization tests**
 

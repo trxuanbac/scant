@@ -28,6 +28,7 @@ def upgrade() -> None:
         sa.Column("source_display_name", sa.String(length=255), nullable=False),
         sa.Column("source_mime_type", sa.String(length=100), nullable=False),
         sa.Column("source_size_bytes", sa.Integer(), nullable=False),
+        sa.Column("available_sheets_json", sa.JSON(), nullable=False),
         sa.Column("scope_json", sa.JSON(), nullable=False),
         sa.Column("client_key_hash", sa.String(length=64), nullable=False),
         sa.Column("title", sa.String(length=255), nullable=False),

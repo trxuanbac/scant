@@ -27,6 +27,7 @@ class AnalysisSession(Base):
     source_display_name = Column(String(255), nullable=False)
     source_mime_type = Column(String(100), nullable=False)
     source_size_bytes = Column(Integer, nullable=False)
+    available_sheets_json = Column(JSON, nullable=False)
     scope_json = Column(JSON, nullable=False)
     client_key_hash = Column(String(64), nullable=False)
     title = Column(String(255), nullable=False, default="Phiên phân tích")

@@ -152,11 +152,15 @@ async def test_analysis_session_upgrade_and_downgrade_preserve_workbook_actions(
     engine = create_async_engine(database_url)
     async with engine.connect() as connection:
         tables = await connection.run_sync(lambda conn: set(inspect(conn).get_table_names()))
+        session_columns = await connection.run_sync(
+            lambda conn: {column["name"] for column in inspect(conn).get_columns("analysis_sessions")}
+        )
         session_id = await connection.scalar(text(
             "SELECT analysis_session_id FROM workbook_actions WHERE id='action-1'"
         ))
     await engine.dispose()
     assert {"analysis_sessions", "analysis_messages", "analysis_findings"} <= tables
+    assert "available_sheets_json" in session_columns
     assert session_id is None
     assert await current_revision(database_url) == "0003"
 

@@ -33,7 +33,15 @@ def test_target_metadata_registers_every_current_table():
     messages = metadata.tables["analysis_messages"]
     findings = metadata.tables["analysis_findings"]
     actions = metadata.tables["workbook_actions"]
-    assert {"user_id", "source_id", "source_kind", "source_version", "scope_json", "client_key_hash"} <= set(sessions.columns.keys())
+    assert {
+        "user_id",
+        "source_id",
+        "source_kind",
+        "source_version",
+        "available_sheets_json",
+        "scope_json",
+        "client_key_hash",
+    } <= set(sessions.columns.keys())
     assert {"session_id", "sequence", "role", "content_text", "response_json"} <= set(messages.columns.keys())
     assert {"session_id", "message_id", "status", "evidence_json", "result_json", "action_ids_json"} <= set(findings.columns.keys())
     assert "analysis_session_id" in actions.columns.keys()
