@@ -168,101 +168,122 @@ class ColumnResolver:
     }
 
     @classmethod
+    def rank_candidates(
+        cls,
+        requested_column: str,
+        columns_schema: List[Dict[str, Any]],
+    ) -> List[Dict[str, Any]]:
+        """Rank plausible columns without discarding close alternatives."""
+        if not columns_schema or not isinstance(requested_column, str):
+            return []
+        req_norm = remove_diacritics(requested_column).strip()
+        if not req_norm:
+            return []
+        req_tokens = set(req_norm.split())
+        ranked: List[Dict[str, Any]] = []
+        semantic_terms: set[str] = set()
+        for key, synonyms in cls.SEMANTIC_SYNONYMS.items():
+            if req_norm == key or req_norm in synonyms:
+                semantic_terms.update([key, *synonyms])
+
+        for position, col in enumerate(columns_schema):
+            col_name = str(col.get("name", "")).strip()
+            col_norm = remove_diacritics(col_name)
+            col_tokens = set(col_norm.split())
+            confidence = 0.0
+            reason = "Không đủ độ tin cậy"
+            match_kind = "none"
+            if col_name == requested_column:
+                confidence, reason, match_kind = 1.0, "Khớp chính xác 100%", "exact"
+            elif col_norm == req_norm:
+                confidence = 0.95
+                reason = f"Khớp không dấu: '{requested_column}' -> '{col_name}'"
+                match_kind = "accent_exact"
+            else:
+                overlap = len(req_tokens & col_tokens)
+                if req_tokens and col_tokens and (
+                    req_tokens.issubset(col_tokens) or col_tokens.issubset(req_tokens)
+                ):
+                    confidence = min(len(req_tokens), len(col_tokens)) / max(
+                        len(req_tokens), len(col_tokens)
+                    )
+                elif req_tokens and col_tokens:
+                    confidence = overlap / max(len(req_tokens | col_tokens), 1)
+                if confidence:
+                    reason = (
+                        f"Khớp từ khóa ({int(confidence * 100)}%): "
+                        f"'{requested_column}' -> '{col_name}'"
+                    )
+                    match_kind = "token"
+                if semantic_terms and any(term in col_norm for term in semantic_terms):
+                    confidence = max(confidence, 0.85)
+                    reason = f"Hiểu theo ngữ nghĩa '{requested_column}' là cột '{col_name}'"
+                    match_kind = "semantic"
+            ranked.append(
+                {
+                    "name": col_name,
+                    "letter": col.get("letter", "A"),
+                    "index": col.get("index", position + 1),
+                    "header_row": col.get("header_row", 1),
+                    "confidence": round(confidence, 2),
+                    "reason": reason,
+                    "match_kind": match_kind,
+                    "_position": position,
+                }
+            )
+        ranked.sort(key=lambda item: (-item["confidence"], item["_position"]))
+        for item in ranked:
+            item.pop("_position", None)
+        return ranked
+
+    @classmethod
     def resolve_column(
         cls,
         requested_column: str,
         columns_schema: List[Dict[str, Any]],
     ) -> Dict[str, Any]:
-        """
-        Resolves requested column string against sheet's column schema.
-        Returns detailed candidate, matched name, letter, index, confidence, and semantic reason.
-        """
+        """Resolve a column only when one supported candidate clearly wins."""
         if not columns_schema:
-            return {"found": False, "name": None, "letter": None, "confidence": 0.0, "reason": "No columns available"}
-
-        req_norm = remove_diacritics(requested_column).strip()
-        req_tokens = set(req_norm.split())
-
-        # 1. Exact match
-        for col in columns_schema:
-            col_name = str(col.get("name", "")).strip()
-            if col_name == requested_column:
-                return {
-                    "found": True,
-                    "name": col_name,
-                    "letter": col.get("letter", "A"),
-                    "index": col.get("index", 1),
-                    "header_row": col.get("header_row", 1),
-                    "confidence": 1.0,
-                    "reason": "Khớp chính xác 100%",
-                }
-
-        # 2. Diacritics-insensitive match
-        for col in columns_schema:
-            col_name = str(col.get("name", "")).strip()
-            if remove_diacritics(col_name) == req_norm:
-                return {
-                    "found": True,
-                    "name": col_name,
-                    "letter": col.get("letter", "A"),
-                    "index": col.get("index", 1),
-                    "header_row": col.get("header_row", 1),
-                    "confidence": 0.95,
-                    "reason": f"Khớp không dấu: '{requested_column}' -> '{col_name}'",
-                }
-
-        # 3. Substring / Token Containment
-        best_col = None
-        best_score = 0.0
-        for col in columns_schema:
-            col_name = str(col.get("name", "")).strip()
-            c_norm = remove_diacritics(col_name)
-            c_tokens = set(c_norm.split())
-            if req_norm in c_norm or c_norm in req_norm:
-                score = min(len(req_norm), len(c_norm)) / max(len(req_norm), len(c_norm))
-            else:
-                overlap = len(req_tokens & c_tokens)
-                score = overlap / max(len(req_tokens | c_tokens), 1)
-            if score > best_score:
-                best_score = score
-                best_col = col
-
-        if best_col and best_score >= 0.4:
             return {
-                "found": True,
-                "name": best_col["name"],
-                "letter": best_col.get("letter", "A"),
-                "index": best_col.get("index", 1),
-                "header_row": best_col.get("header_row", 1),
-                "confidence": round(best_score, 2),
-                "reason": f"Khớp từ khóa ({int(best_score * 100)}%): '{requested_column}' -> '{best_col['name']}'",
+                "found": False,
+                "ambiguous": False,
+                "name": None,
+                "letter": None,
+                "confidence": 0.0,
+                "reason": "No columns available",
+                "candidates": [],
             }
-
-        # 4. Semantic synonyms
-        for key, syns in cls.SEMANTIC_SYNONYMS.items():
-            if req_norm == key or req_norm in syns:
-                for syn in syns:
-                    for col in columns_schema:
-                        col_name = str(col.get("name", "")).strip()
-                        if syn in remove_diacritics(col_name):
-                            return {
-                                "found": True,
-                                "name": col_name,
-                                "letter": col.get("letter", "A"),
-                                "index": col.get("index", 1),
-                                "header_row": col.get("header_row", 1),
-                                "confidence": 0.85,
-                                "reason": f"Hiểu theo ngữ nghĩa '{requested_column}' là cột '{col_name}'",
-                            }
-
-        return {
-            "found": False,
-            "name": None,
-            "letter": None,
-            "confidence": 0.0,
-            "reason": f"Không tìm thấy cột phù hợp với '{requested_column}'",
-            "candidates": [c.get("name") for c in columns_schema[:8]],
-        }
+        ranked = cls.rank_candidates(requested_column, columns_schema)
+        supported = [candidate for candidate in ranked if candidate["confidence"] >= 0.4]
+        if not supported:
+            return {
+                "found": False,
+                "ambiguous": False,
+                "name": None,
+                "letter": None,
+                "confidence": 0.0,
+                "reason": f"Không tìm thấy cột phù hợp với '{requested_column}'",
+                "candidates": [c.get("name") for c in columns_schema[:8]],
+            }
+        top = supported[0]
+        exact = top["match_kind"] in {"exact", "accent_exact"}
+        close = [
+            candidate
+            for candidate in supported
+            if top["confidence"] - candidate["confidence"] <= 0.08
+        ]
+        if not exact and len(close) > 1:
+            return {
+                "found": False,
+                "ambiguous": True,
+                "name": None,
+                "letter": None,
+                "confidence": top["confidence"],
+                "reason": "Có nhiều cột phù hợp với độ tin cậy gần nhau",
+                "candidates": [candidate["name"] for candidate in close],
+                "ranked_candidates": close,
+            }
+        return {"found": True, "ambiguous": False, **top}
 
 
 sheet_resolver = SheetResolver()

@@ -38,27 +38,27 @@
 - `ColumnResolver.rank_candidates(...)` returns deterministic scores and reasons; `resolve_column(...)` returns `ambiguous=True` when the top supported candidates are tied or within the defined confidence margin.
 - Sheet ambiguity uses the same response contract while retaining the existing `error.code` compatibility field.
 
-- [ ] **Step 1: Write failing contract/resolver tests**
+- [x] **Step 1: Write failing contract/resolver tests**
 
 Assert schema stability, candidate de-duplication, exact-match precedence, accent-insensitive matching, near-tie ambiguity, low-confidence not-found behavior, and safe JSON output. Include Vietnamese examples such as `Doanh thu`, `Doanh thu thuần`, `Ngày tạo`, and `Ngày thanh toán`.
 
-- [ ] **Step 2: Run tests and verify RED**
+- [x] **Step 2: Run tests and verify RED**
 
 Run: `cd apps/api && venv/bin/python -m pytest -q tests/test_analysis_clarification.py`
 
 Expected: collection fails because the clarification module and ranking interface do not exist.
 
-- [ ] **Step 3: Implement contract and resolver ranking**
+- [x] **Step 3: Implement contract and resolver ranking**
 
 Preserve exact and no-diacritic exact matches as unambiguous. Rank containment, token overlap, and semantic synonyms deterministically, then require clarification when two supported candidates are within `0.08` and neither is exact. Return no workbook data values in candidate metadata.
 
-- [ ] **Step 4: Verify resolver regressions**
+- [x] **Step 4: Verify resolver regressions**
 
 Run: `cd apps/api && venv/bin/python -m pytest -q tests/test_analysis_clarification.py tests/test_analysis_contracts.py tests/test_excel_ai_workspace_upgrade.py tests/test_phase_u7_data_analysis.py`
 
 Expected: new tests pass and existing exact column/sheet behavior remains available.
 
-- [ ] **Step 5: Commit clarification foundation**
+- [x] **Step 5: Commit clarification foundation**
 
 ```bash
 git add apps/api/app/services/data/analysis_clarification.py apps/api/app/services/data/sheet_resolvers.py apps/api/tests/test_analysis_clarification.py
