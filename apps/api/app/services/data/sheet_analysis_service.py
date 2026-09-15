@@ -11,6 +11,8 @@ import pandas as pd
 
 from app.services.ai.gateway import ai_gateway
 from app.services.ai.types import AIRequest, AITaskType
+from app.services.data.analysis_contracts import AnalysisScope
+from app.services.data.data_quality_service import scan_quality
 
 
 class SheetAnalysisService:
@@ -668,7 +670,10 @@ QUY TẮC BẮT BUỘC:
         columns_meta = stat_result["columns"]
 
         # 3. Data Quality Scan
-        quality_issues = cls.scan_data_quality(df, columns_meta)
+        quality_issues = scan_quality(
+            clean_file_path,
+            AnalysisScope("sheet", (resolved_sheet_name,)),
+        )["issues"]
 
         # 4. Chart Auto-Recommendations
         charts = cls.generate_chart_recommendations(df, stat_result)

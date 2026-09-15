@@ -80,27 +80,27 @@ git commit -m "feat: define analysis clarification contract"
 - Stable issue IDs hash source-local coordinates and issue type rather than depending on discovery order.
 - Evidence cell lists are capped at 200 entries while `affected_count` retains the exact full count.
 
-- [ ] **Step 1: Write failing scanner tests**
+- [x] **Step 1: Write failing scanner tests**
 
 Build XLSX/XLSM and CSV fixtures containing missing values, duplicate rows, numeric outliers, partial invalid date columns, mixed scalar types, literal/formula error cells, whitespace, clean controls, and multi-sheet scopes. Assert exact counts, stable order/IDs, bounded coordinates, no preview rows, and no false formula claim for CSV.
 
-- [ ] **Step 2: Run tests and verify RED**
+- [x] **Step 2: Run tests and verify RED**
 
 Run: `cd apps/api && venv/bin/python -m pytest -q tests/test_data_quality_service.py`
 
 Expected: collection fails because the focused scanner does not exist.
 
-- [ ] **Step 3: Implement one-pass quality scans**
+- [x] **Step 3: Implement one-pass quality scans**
 
 Use pandas for table-level missing/duplicate/type/date/outlier checks and openpyxl `data_only=False` for verifiable cell/formula errors. Reuse detected headers and row offsets from the current query engine, normalize numpy/pandas scalars, and keep recommendations deterministic Vietnamese strings. Make `sheet_analysis_service` consume the shared issue shape while preserving `data_quality_issues`.
 
-- [ ] **Step 4: Verify quality and sheet-analysis regressions**
+- [x] **Step 4: Verify quality and sheet-analysis regressions**
 
 Run: `cd apps/api && venv/bin/python -m pytest -q tests/test_data_quality_service.py tests/test_phase_u7_data_analysis.py tests/test_excel_ai_workspace_upgrade.py`
 
 Expected: all quality categories pass for supported formats and existing analysis summaries remain compatible.
 
-- [ ] **Step 5: Commit quality service**
+- [x] **Step 5: Commit quality service**
 
 ```bash
 git add apps/api/app/services/data/data_quality_service.py apps/api/app/services/data/sheet_analysis_service.py apps/api/tests/test_data_quality_service.py
