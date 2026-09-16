@@ -1,6 +1,7 @@
 import asyncio
 import base64
 import html
+import logging
 import re
 import textwrap
 from pathlib import Path
@@ -22,6 +23,7 @@ from app.core.config import settings
 from app.services.data.data_access import owned_dataset
 
 router = APIRouter(prefix="/reports", tags=["reports"])
+logger = logging.getLogger(__name__)
 
 
 async def _ensure_report_owner(db: AsyncSession, report: Report, current_user: User) -> Project:
@@ -702,7 +704,17 @@ async def one_click_auto_create(
         )
 
     # 1. AI Intent Analysis
-    intent = await outline_service.analyze_intent(AnalyzeIntentRequest(user_prompt=prompt))
+    try:
+        intent = await outline_service.analyze_intent(AnalyzeIntentRequest(user_prompt=prompt))
+    except RuntimeError:
+        logger.exception("AI intent analysis failed while starting one-click report")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=(
+                "Dịch vụ AI đang bận hoặc đã đạt giới hạn. "
+                "Vui lòng thử lại sau hoặc kiểm tra cấu hình nhà cung cấp AI."
+            ),
+        )
 
     clean_title = _clean_generated_report_title(prompt, intent.suggested_title)
 

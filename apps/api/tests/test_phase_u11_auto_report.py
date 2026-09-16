@@ -95,6 +95,40 @@ async def test_one_click_auto_create_flow(
 
 
 @pytest.mark.asyncio
+async def test_one_click_auto_create_returns_clear_503_when_ai_is_unavailable(
+    client: AsyncClient,
+    monkeypatch,
+):
+    reg_res = await client.post("/api/v1/auth/register", json={
+        "email": "auto-ai-unavailable@corp.com",
+        "password": "Password123!",
+        "name": "Unavailable AI User",
+    })
+    token = reg_res.json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    async def fail_intent(*args, **kwargs):
+        raise RuntimeError("provider quota exceeded")
+
+    monkeypatch.setattr(
+        "app.services.editor.outline_service.outline_service.analyze_intent",
+        fail_intent,
+    )
+
+    response = await client.post(
+        "/api/v1/reports/auto-create",
+        data={"prompt": "Báo cáo thử nghiệm"},
+        headers=headers,
+    )
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == (
+        "Dịch vụ AI đang bận hoặc đã đạt giới hạn. "
+        "Vui lòng thử lại sau hoặc kiểm tra cấu hình nhà cung cấp AI."
+    )
+
+
+@pytest.mark.asyncio
 async def test_auto_create_accepts_dataset_link_sheet_range_and_analysis_request(
     client: AsyncClient,
     monkeypatch,

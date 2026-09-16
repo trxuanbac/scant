@@ -50,6 +50,27 @@ def test_image_plan_automatically_selects_a_relevant_section_without_marker():
     assert plan[0].purpose.startswith("Tự động")
 
 
+def test_automatic_image_plan_removes_report_boilerplate_from_search_query():
+    sections = [
+        SimpleNamespace(
+            id="overview",
+            title="CHƯƠNG 1: TỔNG QUAN VỀ ĐỀ TÀI",
+            level=1,
+            position=1,
+            plain_text="Tổng quan.",
+            content_json={},
+        ),
+    ]
+
+    plan = auto_report_image_service.plan(
+        sections,
+        "Báo cáo thử nghiệm về chuyển đổi số tại Việt Nam",
+    )
+
+    assert len(plan) == 1
+    assert plan[0].query == "chuyển đổi số tại Việt Nam"
+
+
 def test_image_candidate_relevance_rejects_unrelated_title():
     assert auto_report_image_service._candidate_score(
         "kiến trúc điện toán đám mây",

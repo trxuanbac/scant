@@ -37,6 +37,20 @@ class AutoReportImageService:
         "bao", "cao", "phan", "tich", "tong", "quan", "chuong", "muc", "noi", "dung",
         "report", "analysis", "section", "overview", "the", "and", "with", "from",
     }
+    _SECTION_QUERY_CLUES = (
+        ("thi truong", "thị trường"),
+        ("kien truc", "kiến trúc"),
+        ("quy trinh", "quy trình"),
+        ("cong nghe", "công nghệ"),
+        ("phuong phap", "phương pháp"),
+        ("hien trang", "hiện trạng"),
+        ("trien khai", "triển khai"),
+        ("implementation", "implementation"),
+        ("architecture", "architecture"),
+        ("technology", "technology"),
+        ("process", "process"),
+        ("market", "market"),
+    )
 
     @classmethod
     def _normalize(cls, value: str) -> str:
@@ -59,6 +73,30 @@ class AutoReportImageService:
         if content_json.get("type") == "image":
             return True
         return any(cls._has_image_node(child) for child in content_json.get("content") or [])
+
+    @classmethod
+    def _concise_auto_query(cls, topic: str, section_title: str) -> str:
+        clean_topic = re.sub(
+            r"^\s*(?:báo\s+cáo|report)\s+(?:(?:thử\s+nghiệm|nghiên\s+cứu|phân\s+tích)\s+)?(?:về\s+)?",
+            "",
+            str(topic or "").strip(),
+            flags=re.IGNORECASE,
+        )
+        clean_topic = re.sub(r"\s+", " ", clean_topic).strip(" :-–—")
+        topic_words = clean_topic.split()
+        if len(topic_words) > 8:
+            clean_topic = " ".join(topic_words[:8])
+
+        normalized_title = cls._normalize(section_title)
+        clue = ""
+        if "tong quan" not in normalized_title:
+            clue = next(
+                (label for marker, label in cls._SECTION_QUERY_CLUES if marker in normalized_title),
+                "",
+            )
+        if clue and clue not in cls._normalize(clean_topic):
+            clean_topic = f"{clean_topic} {clue}".strip()
+        return clean_topic or str(topic or section_title or "").strip()
 
     @classmethod
     def plan(cls, sections: Iterable[Any], topic: str, max_images: Optional[int] = None) -> List[ImagePlanItem]:
@@ -119,7 +157,7 @@ class AutoReportImageService:
                 if not section_id or section_id in planned_section_ids:
                     continue
                 title = str(getattr(section, "title", "") or "").strip()
-                query = re.sub(r"\s+", " ", f"{topic} {title}").strip()
+                query = cls._concise_auto_query(topic, title)
                 caption = f"Hình minh họa: {topic}"
                 planned.append(ImagePlanItem(
                     id=hashlib.sha1(f"{section_id}:{query}:auto".encode("utf-8")).hexdigest()[:20],
