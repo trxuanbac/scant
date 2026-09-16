@@ -24,7 +24,7 @@ export function SpreadsheetActionCard({ label, sheet, cells, rows, color, clear,
   // Freeze exactly what the user reviewed; never confirm a silently changed target.
   const target = JSON.stringify({ sheet, cells, color, clear });
   const terminal = status === "applied" || status === "cancelled" || status === "failed";
-  const buttonClass = "rounded-md border border-slate-200 px-2.5 py-1.5 text-xs font-medium hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 disabled:cursor-not-allowed disabled:opacity-50";
+  const buttonClass = "rounded-md border border-slate-200 px-2.5 py-1.5 text-xs font-medium hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 disabled:cursor-not-allowed disabled:opacity-50";
 
   function confirm() {
     if (confirmation.current.isConsumed() || status !== "preview" || unavailable) return;
@@ -44,9 +44,8 @@ export function SpreadsheetActionCard({ label, sheet, cells, rows, color, clear,
 
   return (
     <section className="min-w-0 rounded-md border border-slate-200 bg-white p-3 text-xs">
-      <p className="break-words font-semibold text-slate-800">{label}</p>
-      <p className="mt-1 break-words text-slate-600">Sheet: <strong>{sheet || "—"}</strong> · {clear ? (vi ? "Toàn bộ lớp tô màu cục bộ" : "All local highlight layers") : `${cells.length} ${vi ? "ô" : "cells"}${rows?.length ? ` · ${rows.length} ${vi ? "hàng" : "rows"}` : ""}`}</p>
-      <p className="mt-1 text-slate-500">{vi ? "Chỉ thay đổi lớp hiển thị trong ứng dụng. Không ghi vào Google Sheets hoặc tệp gốc." : "Changes the app display only. Does not write to Google Sheets or the original file."}</p>
+      <div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="truncate font-semibold text-slate-900" title={label}>{label}</p><p className="mt-1 break-words text-slate-500">{sheet || "—"} · {clear ? (vi ? "Toàn bộ lớp màu" : "All highlight layers") : `${cells.length} ${vi ? "ô" : "cells"}${rows?.length ? ` · ${rows.length} ${vi ? "hàng" : "rows"}` : ""}`}</p></div>{!clear && <span className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-slate-200 bg-slate-50 px-2 py-1 font-mono text-[10px] text-slate-600"><span className="h-3 w-3 rounded-sm border border-black/10" style={{ backgroundColor: color }} aria-hidden="true" />{color}</span>}</div>
+      <p className="mt-2 text-[11px] leading-4 text-slate-500">{vi ? "Lưu lớp hiển thị trong SCANT; file gốc không thay đổi." : "Save a SCANT display layer; the original file stays unchanged."}</p>
       {status === "preview" && (
         <div className="mt-2 space-y-2 border-t border-slate-100 pt-2">
           {!clear && <p className="flex items-center gap-2"><span className="h-3 w-3 rounded-sm border border-slate-300" style={{ backgroundColor: color }} aria-hidden="true" />{vi ? "Màu tô" : "Highlight color"}: {color}</p>}

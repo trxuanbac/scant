@@ -841,10 +841,10 @@ export default function ExcelAnalysisWorkspace({
         return restored;
       });
     }}>
-    <div className="flex flex-col rounded-xl border border-slate-200 bg-white shadow-xs font-sans overflow-hidden">
+    <div data-workspace-shell className="flex min-h-0 flex-col overflow-hidden rounded-lg border border-slate-200 bg-white font-sans">
       {dataSourceUrl?.includes("docs.google.com/spreadsheets") && <div className="px-4"><GoogleDataConnection /></div>}
       {/* 1. Header Workspace (2 Tầng rõ ràng theo phong cách SaaS tối giản) */}
-      <div className="border-b border-slate-200 bg-white px-4 py-3 shrink-0 space-y-2.5">
+      <div className="shrink-0 space-y-3 border-b border-slate-200 bg-white px-4 py-3">
         {/* Tầng 1: Tên file & Workspace Badge */}
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-2.5 min-w-0">
@@ -869,13 +869,14 @@ export default function ExcelAnalysisWorkspace({
             </div>
           </div>
 
-          <span className="rounded-md border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-800 shrink-0">
-            Workspace Phân tích dữ liệu
+          <span className="hidden shrink-0 items-center gap-1.5 rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-medium text-slate-600 sm:inline-flex">
+            <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" aria-hidden="true" />
+            {locale === "vi" ? "Phân tích dữ liệu" : "Data analysis"}
           </span>
         </div>
 
         {/* Tầng 2: Controls & Actions */}
-        <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-slate-100">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-3">
           {/* Left: Sheet selector, Thống kê, Phân tích lại */}
           <div className="flex items-center gap-2 flex-wrap">
             <div className="relative">
@@ -960,14 +961,15 @@ export default function ExcelAnalysisWorkspace({
       </div>
 
       {/* 2. Main Body Split Layout (Spreadsheet ~65% | Analysis Panel ~35%) */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-0 min-h-0 h-[clamp(650px,84vh,900px)] overflow-hidden">
+      <div className="grid h-auto min-h-0 grid-cols-1 gap-0 overflow-visible lg:h-[clamp(720px,calc(100dvh-9rem),980px)] lg:grid-cols-12 lg:overflow-hidden">
         {/* Left: Spreadsheet Preview Viewport (100% width when AI panel hidden) */}
         <div
           className={`${
             !isAnalysisPanelOpen
               ? "lg:col-span-12 xl:col-span-12"
               : "lg:col-span-8 xl:col-span-8 border-r border-slate-200"
-          } bg-white p-3 flex flex-col h-full min-h-0 min-w-0 overflow-hidden transition-all duration-200`}
+          } flex h-[720px] min-h-0 min-w-0 flex-col overflow-hidden bg-white p-3 transition-all duration-200 lg:h-full`}
+          data-workbook-canvas
         >
           {/* Top Bar above Spreadsheet: Sheet name, counts, search, highlights */}
           <div className="flex shrink-0 items-center justify-between pb-2.5 mb-2 border-b border-slate-200">
@@ -1084,7 +1086,15 @@ export default function ExcelAnalysisWorkspace({
           )}
 
           {/* Analysis Findings Banner directly above Spreadsheet (Insight banner nhỏ ~56-72px) */}
-          {lastAnalysisResult && <div className="space-y-2 px-4 py-2">
+          {lastAnalysisResult && (lastAnalysisResult.pending_actions || []).length > 0 && <section data-pending-action-list className="mb-2 shrink-0 rounded-lg border border-slate-200 bg-slate-50/70 p-2.5">
+            <div className="mb-2 flex items-center justify-between gap-3">
+              <div>
+                <h3 className="text-xs font-semibold text-slate-900">{locale === "vi" ? "Thay đổi đang chờ xác nhận" : "Changes awaiting confirmation"}</h3>
+                <p className="mt-0.5 text-[11px] text-slate-500">{locale === "vi" ? "Xem đúng ô và màu trước khi lưu lớp hiển thị." : "Review cells and color before saving the display layer."}</p>
+              </div>
+              <span className="shrink-0 rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] font-medium text-slate-600">{lastAnalysisResult.pending_actions.length} {locale === "vi" ? "đề xuất" : "proposals"}</span>
+            </div>
+            <div className="grid grid-cols-1 gap-2 xl:grid-cols-2">
             {(lastAnalysisResult.pending_actions || []).map((action: any, index: number) => {
               const sheet = action.sheet || activeSheetName;
               const columns = visualWorkbook?.sheets.find((item) => item.name === sheet)?.max_column || 0;
@@ -1106,16 +1116,17 @@ export default function ExcelAnalysisWorkspace({
                 setLastAnalysisResultBySheet((previous) => Object.fromEntries(Object.entries(previous).map(([key, value]) => [key, value === lastAnalysisResult ? { ...value, pending_actions: value.pending_actions.filter((item: any) => item !== action) } : value])));
               }} />;
             })}
-          </div>}
+            </div>
+          </section>}
           {lastAnalysisResult && (
-            <div className="mb-2 shrink-0 rounded-xl border border-amber-200/80 bg-amber-50/40 px-3 py-2 shadow-2xs">
+            <div className="mb-2 shrink-0 rounded-lg border border-slate-200 bg-white px-3 py-2.5">
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 min-h-[44px]">
                 <div className="flex items-start gap-2.5 min-w-0">
-                  <Sparkles className="h-4 w-4 text-amber-500 shrink-0 mt-0.5" />
+                  <Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
                   <div className="min-w-0">
                     <div className="flex items-center gap-1.5 flex-wrap">
-                      <span className="text-xs font-semibold text-amber-950">
-                        ✨ {lastAnalysisResult.title || (locale === "vi" ? `Tổng quan ${activeSheetName}` : "Analysis Findings")}
+                      <span className="text-xs font-semibold text-slate-950">
+                        {lastAnalysisResult.title || (locale === "vi" ? `Tổng quan ${activeSheetName}` : "Analysis Findings")}
                       </span>
                       {lastAnalysisResult.result?.duplicate_count !== undefined && (
                         <span className="rounded bg-amber-100/90 px-1.5 py-0.2 text-[10px] font-semibold text-amber-800">
@@ -1158,7 +1169,7 @@ export default function ExcelAnalysisWorkspace({
                         )
                       )}
                     </div>
-                    <p className="text-xs text-amber-900 line-clamp-1 font-normal mt-0.5" title={lastAnalysisResult.answer}>
+                    <p className="mt-0.5 line-clamp-2 text-xs font-normal leading-5 text-slate-700" title={lastAnalysisResult.answer}>
                       {renderInlineMarkdown(lastAnalysisResult.answer)}
                     </p>
                   </div>
@@ -1249,7 +1260,7 @@ export default function ExcelAnalysisWorkspace({
           </div>
 
           {/* Bottom: Docked AI Prompt & Quick Action Bar */}
-          <div className="mt-2.5 shrink-0 rounded-xl border border-emerald-200 bg-gradient-to-r from-emerald-50/90 via-teal-50/50 to-emerald-50/80 p-2.5 shadow-2xs space-y-2">
+          <div data-analysis-composer className="mt-2.5 shrink-0 space-y-2 rounded-lg border border-slate-200 bg-slate-50/70 p-3">
             <fieldset className="min-w-0 space-y-2">
               <legend className="text-xs font-semibold text-slate-700">{locale === "vi" ? "Bảng cần phân tích" : "Sheets to analyze"}</legend>
               <div className="flex max-h-28 flex-wrap items-center gap-2 overflow-y-auto">
@@ -1282,13 +1293,14 @@ export default function ExcelAnalysisWorkspace({
                     ? "Nhập yêu cầu phân tích (VD: Tìm xe trùng biển số, tìm ô trống, lọc theo trạm)..."
                     : "Enter analysis prompt (e.g., find duplicate license plates, blank cells)..."
                 }
-                className="flex-1 bg-white border border-slate-200 rounded-lg px-3 py-1.5 text-xs font-medium text-slate-900 outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 placeholder:text-slate-400 transition"
+                aria-label={locale === "vi" ? "Yêu cầu phân tích dữ liệu" : "Data analysis request"}
+                className="h-10 flex-1 rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20"
               />
               <button
                 type="button"
                 onClick={() => handleRunAnalysisAction()}
                 disabled={isRunningAnalysisAction || !analysisPrompt.trim() || !analysisScope}
-                className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-4 py-1.5 text-xs font-bold text-white shadow-xs hover:bg-emerald-700 active:scale-95 disabled:opacity-50 transition shrink-0"
+                className="inline-flex h-10 shrink-0 items-center gap-1.5 rounded-md bg-emerald-600 px-4 text-sm font-semibold text-white transition hover:bg-emerald-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {isRunningAnalysisAction ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Zap className="h-3.5 w-3.5" />}
                 <span>{locale === "vi" ? "Phân tích" : "Analyze"}</span>
@@ -1326,7 +1338,7 @@ export default function ExcelAnalysisWorkspace({
               </div>
 
               {/* Color Picker for Highlighting */}
-              <div className="flex items-center gap-1 shrink-0 bg-white/90 rounded-md px-2 py-0.5 border border-slate-200 shadow-2xs">
+              <div className="flex shrink-0 items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1">
                 <span className="text-[10px] font-bold text-slate-500">
                   {locale === "vi" ? "Màu bôi:" : "Color:"}
                 </span>
@@ -1342,7 +1354,8 @@ export default function ExcelAnalysisWorkspace({
                     type="button"
                     onClick={() => setActiveHighlightColor(c.color)}
                     style={{ backgroundColor: c.color }}
-                    className={`h-4 w-4 rounded-full border transition-transform ${
+                    aria-label={`${locale === "vi" ? "Chọn màu tô" : "Select highlight color"}: ${c.title}`}
+                    className={`h-6 w-6 rounded-full border transition-transform focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 ${
                       activeHighlightColor === c.color ? "ring-2 ring-emerald-600 scale-110 border-slate-700" : "border-slate-300 hover:scale-105"
                     }`}
                     title={c.title}
@@ -1367,7 +1380,7 @@ export default function ExcelAnalysisWorkspace({
             !isAnalysisPanelOpen
               ? "hidden"
               : "lg:col-span-4 xl:col-span-4"
-          } bg-slate-50 flex flex-col h-full min-h-0 min-w-0 p-3.5 transition-all duration-200 overflow-hidden`}
+          } flex h-[720px] min-h-0 min-w-0 flex-col overflow-hidden border-t border-slate-200 bg-slate-50 p-3.5 transition-all duration-200 lg:h-full lg:border-t-0`}
         >
           {/* Analysis Tabs Header */}
           <div className="flex items-center justify-between gap-1.5 pb-2 border-b border-slate-200 shrink-0">

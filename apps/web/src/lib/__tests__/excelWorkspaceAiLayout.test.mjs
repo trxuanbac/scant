@@ -19,6 +19,20 @@ test("workspace separates analysis action from Ask AI chat", () => {
   assert.doesNotMatch(source, /initialPrompt=\{initialAnalysisPrompt\}/);
 });
 
+test("analysis workspace uses a focused canvas, compact action queue, and accessible composer", () => {
+  const source = readFileSync(resolve(componentDir, "ExcelAnalysisWorkspace.tsx"), "utf8");
+
+  assert.match(source, /data-workspace-shell/);
+  assert.match(source, /data-workbook-canvas/);
+  assert.match(source, /data-pending-action-list/);
+  assert.match(source, /grid-cols-1 gap-2 xl:grid-cols-2/);
+  assert.match(source, /aria-label=\{locale === "vi" \? "Yêu cầu phân tích dữ liệu"/);
+  assert.match(source, /data-analysis-composer/);
+  assert.match(source, /h-auto[^"]*lg:h-\[clamp\(720px,calc\(100dvh-9rem\),980px\)\]/);
+  assert.match(source, /h-\[720px\][^"]*lg:h-full/);
+  assert.doesNotMatch(source, /bg-gradient-to-r from-emerald-50\/90 via-teal-50\/50 to-emerald-50\/80/);
+});
+
 test("chat panel renders workbook context, source chips, and pending actions", () => {
   const source = readFileSync(resolve(componentDir, "ExcelAIChatPanel.tsx"), "utf8");
 
