@@ -137,6 +137,7 @@ Viết nội dung hoàn chỉnh cho đúng mục trên. Giữ nguyên marker [SR
         rendered_text = re.sub(r"[ \t]+([.,;:])", r"\1", rendered_text)
 
         return {
+            "stable_text": raw_text,
             "plain_text": rendered_text,
             "tiptap_json": cls._text_to_tiptap_json(rendered_text, section_level),
             "word_count": len(rendered_text.split()),

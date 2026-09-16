@@ -1,6 +1,7 @@
 import asyncio
 import json
 import re
+import unicodedata
 from typing import Any, Dict, List, Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.entities import Job, Report, ReportSection, Project, TemplateVersion
@@ -20,6 +21,7 @@ from app.services.agent.report_context_builder import report_context_builder
 from app.services.agent.grounded_research_service import grounded_research_service
 from app.services.agent.report_research_contracts import ClaimEvidence
 from app.services.agent.template_profile_service import template_profile_service
+from app.services.citations.bibliography_service import bibliography_service
 
 
 class AgenticReportOrchestrator:
@@ -68,6 +70,28 @@ class AgenticReportOrchestrator:
                     "verification_status": item.verification_status,
                 })
         return payloads
+
+    @classmethod
+    def _is_reference_section(cls, title: str) -> bool:
+        normalized = unicodedata.normalize("NFD", title or "")
+        normalized = "".join(ch for ch in normalized if unicodedata.category(ch) != "Mn")
+        normalized = re.sub(r"\s+", " ", normalized.lower().replace("đ", "d")).strip()
+        return "tai lieu tham khao" in normalized or normalized in {"references", "bibliography"}
+
+    @classmethod
+    def _collect_cited_source_ids(
+        cls,
+        draft_results: List[Any],
+        source_order: List[str],
+    ) -> List[str]:
+        cited: set[str] = set()
+        for _, draft_result in draft_results:
+            for item in draft_result.get("citations_found") or []:
+                if isinstance(item, int) and 1 <= item <= len(source_order):
+                    cited.add(source_order[item - 1])
+                elif str(item) in source_order:
+                    cited.add(str(item))
+        return [source_id for source_id in source_order if source_id in cited]
 
     @classmethod
     def _resolve_length_plan(cls, instructions: Optional[str]) -> Dict[str, int]:
@@ -597,18 +621,14 @@ NGỮ CẢNH DỮ LIỆU ĐÃ KIỂM ĐỊNH BẰNG PYTHON:
                         await section_repo.update(db, db_obj=sec, obj_in={"level": normalized_level})
                         sec.level = normalized_level
 
-                    if "TÀI LIỆU THAM KHẢO" in sec.title.upper():
-                        ref_lines = ["TÀI LIỆU THAM KHẢO"]
-                        if sources_payload:
-                            for idx, src in enumerate(sources_payload, 1):
-                                ref_lines.append(f"[{idx}] {src.get('title') or 'Nguồn tham khảo'}, {src.get('publisher') or 'Nhà xuất bản/website'}, {src.get('summary') or 'Tài liệu tham khảo cho báo cáo.'}")
-                        else:
-                            ref_lines.append("Không có nguồn tham khảo ngoài đã được xác minh.")
-                        plain_text = "\n".join(ref_lines)
+                    if cls._is_reference_section(sec.title):
+                        plain_text = sec.title
                         return sec, {
                             "plain_text": plain_text,
                             "tiptap_json": writing_engine._text_to_tiptap_json(plain_text, sec.level),
                             "word_count": len(plain_text.split()),
+                            "is_reference_section": True,
+                            "citations_found": [],
                         }
 
                     section_target_words = section_word_targets.get(sec.title, 220)
@@ -707,10 +727,29 @@ NGỮ CẢNH DỮ LIỆU ĐÃ KIỂM ĐỊNH BẰNG PYTHON:
             else:
                 draft_results = await asyncio.gather(*[draft_one_section(sec) for sec in sections])
 
+            source_order = [candidate.id for candidate in candidates]
+            cited_source_ids = cls._collect_cited_source_ids(draft_results, source_order)
+            bibliography_result = bibliography_service.build(
+                cited_source_ids,
+                sources_by_id,
+                template_profile["citation_style"],
+            )
             seen_visuals: set[str] = set()
             validation_results: List[Dict[str, Any]] = []
+            reference_section_found = False
             for sec, draft_res in draft_results:
-                text = cls._deduplicate_visual_markers(draft_res.get("plain_text", ""), seen_visuals)
+                if draft_res.get("is_reference_section") or cls._is_reference_section(sec.title):
+                    reference_section_found = True
+                    reference_body = bibliography_result.plain_text or "Không có nguồn web nào được trích dẫn trong nội dung."
+                    text = f"{sec.title}\n\n{reference_body}".strip()
+                elif draft_res.get("stable_text"):
+                    text = bibliography_service.render_stable_markers(
+                        draft_res["stable_text"],
+                        bibliography_result.inline_labels,
+                    )
+                else:
+                    text = draft_res.get("plain_text", "")
+                text = cls._deduplicate_visual_markers(text, seen_visuals)
                 draft_res["plain_text"] = text
                 draft_res["tiptap_json"] = writing_engine._text_to_tiptap_json(text, sec.level)
                 draft_res["word_count"] = len(text.split())
@@ -734,6 +773,7 @@ NGỮ CẢNH DỮ LIỆU ĐÃ KIỂM ĐỊNH BẰNG PYTHON:
                         "invalid_citations": draft_res.get("invalid_citations", []),
                         "unsupported_claims": draft_res.get("unsupported_claims", []),
                         "prompt_version": "grounded_web_section_v1",
+                        "citation_style": template_profile["citation_style"],
                     },
                 }
                 web_grounding_valid = not draft_res.get("invalid_citations") and not draft_res.get("unsupported_claims")
@@ -756,6 +796,29 @@ NGỮ CẢNH DỮ LIỆU ĐÃ KIỂM ĐỊNH BẰNG PYTHON:
                     if key not in existing_keys:
                         await claim_source_repo.create(db, obj_in=payload)
                         existing_keys.add(key)
+
+            if not reference_section_found:
+                reference_title = "TÀI LIỆU THAM KHẢO"
+                reference_body = bibliography_result.plain_text or "Không có nguồn web nào được trích dẫn trong nội dung."
+                reference_text = f"{reference_title}\n\n{reference_body}"
+                reference_section = await section_repo.create(db, obj_in={
+                    "report_id": report.id,
+                    "title": reference_title,
+                    "position": max((section.position for section in sections), default=0) + 1,
+                    "level": 1,
+                    "status": "draft",
+                    "plain_text": reference_text,
+                    "content_json": writing_engine._text_to_tiptap_json(reference_text, 1),
+                    "word_count": len(reference_text.split()),
+                    "structured_summary_json": {
+                        "bibliography": {
+                            "style": bibliography_result.style,
+                            "source_ids": bibliography_result.source_ids,
+                            "generated_from_citations": True,
+                        }
+                    },
+                })
+                sections.append(reference_section)
 
             # STAGE 6: Quality Check & Finalization
             await update_stage("run_quality_check", 95, "Đang kiểm định chất lượng và hoàn tất tài liệu...")

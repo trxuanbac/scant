@@ -61,6 +61,7 @@ async def test_grounded_draft_only_exposes_section_sources(monkeypatch):
     assert "Nguồn không liên quan" not in captured["prompt"]
     assert result["citations_found"] == ["s1"]
     assert result["invalid_citations"] == []
+    assert result["stable_text"].endswith("[SRC:s1].")
     assert result["plain_text"].endswith("[1].")
 
 
