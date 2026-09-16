@@ -143,6 +143,20 @@ async def test_find_max_keeps_selected_color_across_workbook_scope(sample_multi_
 
 
 @pytest.mark.asyncio
+async def test_analysis_action_honors_freeform_question_instead_of_returning_default_summary(sample_multi_sheet_file):
+    res = await workbook_chat_service.analyze_action(
+        file_path=sample_multi_sheet_file,
+        prompt="Sheet này có vấn đề gì?",
+        sheet_name="Bang_luong",
+    )
+
+    assert res["mode"] == "analysis_action"
+    assert res["analysis_history_item"]["prompt"] == "Sheet này có vấn đề gì?"
+    assert res["evidence"]["operation"] == "SHEET_SUMMARY"
+    assert "ô trống / thiếu dữ liệu" in res["answer"]
+
+
+@pytest.mark.asyncio
 async def test_analyze_action_sum_real_execution(sample_multi_sheet_file):
     res = await workbook_chat_service.analyze_action(
         file_path=sample_multi_sheet_file,

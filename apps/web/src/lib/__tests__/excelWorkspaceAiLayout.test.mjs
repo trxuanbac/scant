@@ -28,6 +28,9 @@ test("analysis workspace uses a focused canvas, compact action queue, and access
   assert.match(source, /grid-cols-1 gap-2 xl:grid-cols-2/);
   assert.match(source, /aria-label=\{locale === "vi" \? "Yêu cầu phân tích dữ liệu"/);
   assert.match(source, /data-analysis-composer/);
+  assert.match(source, /Câu hỏi gợi ý:/);
+  assert.match(source, /Hỏi bất kỳ điều gì về dữ liệu/);
+  assert.match(source, /Yêu cầu đã gửi:/);
   assert.match(source, /h-auto[^"]*lg:h-\[clamp\(720px,calc\(100dvh-9rem\),980px\)\]/);
   assert.match(source, /h-\[720px\][^"]*lg:h-full/);
   assert.doesNotMatch(source, /bg-gradient-to-r from-emerald-50\/90 via-teal-50\/50 to-emerald-50\/80/);

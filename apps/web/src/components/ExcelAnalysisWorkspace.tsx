@@ -1169,7 +1169,8 @@ export default function ExcelAnalysisWorkspace({
                         )
                       )}
                     </div>
-                    <p className="mt-0.5 line-clamp-2 text-xs font-normal leading-5 text-slate-700" title={lastAnalysisResult.answer}>
+                    {lastAnalysisResult.analysis_history_item?.prompt && <p className="mt-1 truncate text-[11px] text-slate-500" title={lastAnalysisResult.analysis_history_item.prompt}><span className="font-medium text-slate-600">{locale === "vi" ? "Yêu cầu đã gửi:" : "Submitted request:"}</span> {lastAnalysisResult.analysis_history_item.prompt}</p>}
+                    <p className="mt-1 line-clamp-2 text-xs font-normal leading-5 text-slate-700" title={lastAnalysisResult.answer}>
                       {renderInlineMarkdown(lastAnalysisResult.answer)}
                     </p>
                   </div>
@@ -1290,8 +1291,8 @@ export default function ExcelAnalysisWorkspace({
                 }}
                 placeholder={
                   locale === "vi"
-                    ? "Nhập yêu cầu phân tích (VD: Tìm xe trùng biển số, tìm ô trống, lọc theo trạm)..."
-                    : "Enter analysis prompt (e.g., find duplicate license plates, blank cells)..."
+                    ? "Nhập yêu cầu phân tích. Hỏi bất kỳ điều gì về dữ liệu..."
+                    : "Ask anything about the data or request an action..."
                 }
                 aria-label={locale === "vi" ? "Yêu cầu phân tích dữ liệu" : "Data analysis request"}
                 className="h-10 flex-1 rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20"
@@ -1311,7 +1312,7 @@ export default function ExcelAnalysisWorkspace({
             <div className="flex items-center justify-between gap-2 flex-wrap pt-0.5">
               <div className="flex items-center gap-1.5 flex-wrap">
                 <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
-                  {locale === "vi" ? "Gợi ý nhanh:" : "Quick Actions:"}
+                  {locale === "vi" ? "Câu hỏi gợi ý:" : "Suggested questions:"}
                 </span>
                 {[
                   { label: locale === "vi" ? "👑 Giá trị cao nhất" : "👑 Max Value", prompt: "Tìm dòng có giá trị cao nhất" },

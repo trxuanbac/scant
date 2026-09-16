@@ -901,20 +901,41 @@ class WorkbookChatService:
             result_type = "formula"
 
         else:
-            # SUMMARY / OVERVIEW
-            missing = spreadsheet_query_engine.find_missing_cells(file_path, target_sheet, [full_sheet_range])
-            numeric_cols = [col["name"] for col in columns_schema if col.get("type") == "numeric"][:3]
-            summaries = [spreadsheet_query_engine.sum(file_path, target_sheet, c) for c in numeric_cols]
-            evidence = {"sheet": target_sheet, "ranges": [full_sheet_range], "operation": "SUMMARY", "rowCount": schema.get("row_count", 0)}
-            num_lines = [f"• Tổng **{s['column']['name']}**: {cls._format_number(s.get('value'))}" for s in summaries if s.get("column")]
-            title = f"Tổng quan {target_sheet}"
-            answer = (
-                f"Sheet **{target_sheet}** có **{schema.get('row_count', 0)} dòng dữ liệu** và **{len(columns_schema)} cột**.\n"
-                f"Phát hiện **{missing.get('missing_count', 0)} ô trống**.\n"
-                + "\n".join(num_lines)
+            # Preserve the user's actual question. The conversational workbook engine
+            # handles broader grounded questions that do not map to a mutation intent.
+            freeform = await cls.chat(
+                file_path=file_path,
+                message=prompt,
+                sheet_name=target_sheet,
+                selected_range=selected_range,
+                conversation_id=conversation_id,
+                scope={"type": "sheet", "sheet": target_sheet},
             )
-            result = {"schema": schema, "missing": missing, "summaries": summaries}
-            result_type = "summary"
+            freeform_evidence = freeform.get("evidence") or {
+                "sheet": target_sheet,
+                "ranges": [full_sheet_range],
+                "operation": "WORKBOOK_QUESTION",
+                "rowCount": schema.get("row_count", 0),
+            }
+            freeform_answer = freeform.get("answer") or f"Không tìm thấy câu trả lời phù hợp trên sheet **{target_sheet}**."
+            return {
+                **freeform,
+                "mode": "analysis_action",
+                "title": freeform.get("title") or f"Trả lời theo yêu cầu · {target_sheet}",
+                "result_type": freeform.get("result_type") or "answer",
+                "answer": freeform_answer,
+                "context": freeform.get("context") or {"sheet": target_sheet, "ranges": freeform_evidence.get("ranges", [])},
+                "evidence": freeform_evidence,
+                "actions": freeform.get("actions") or [],
+                "pending_actions": freeform.get("pending_actions") or [],
+                "analysis_history_item": {
+                    "prompt": prompt,
+                    "sheet": freeform_evidence.get("sheet", target_sheet),
+                    "ranges": freeform_evidence.get("ranges", []),
+                    "operation": freeform_evidence.get("operation", "WORKBOOK_QUESTION"),
+                    "summary": freeform_answer,
+                },
+            }
 
         # Collect all cells to highlight
         all_highlight_cells: List[str] = []
