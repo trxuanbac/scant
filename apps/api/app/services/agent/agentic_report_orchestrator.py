@@ -18,6 +18,7 @@ from app.services.data.data_engine import data_engine
 from app.services.documents.docx_parser import docx_parser
 from app.services.templates.template_cleaner import template_cleaner
 from app.services.agent.report_context_builder import report_context_builder
+from app.services.agent.template_profile_service import template_profile_service
 
 
 class AgenticReportOrchestrator:
@@ -25,6 +26,20 @@ class AgenticReportOrchestrator:
     Multi-Stage Autonomous Document Engine (Phase U11 & High-Speed Parallel Optimization).
     Executes the One-Click Auto Report Pipeline safely in a standalone session with concurrent section drafting.
     """
+
+    @classmethod
+    def _build_template_profile_checkpoint(
+        cls,
+        template_context: Dict[str, Any],
+        report_type: str,
+        instructions: Optional[str],
+    ) -> Dict[str, Any]:
+        profile = template_profile_service.build(
+            template_context,
+            report_type=report_type,
+            explicit_requirements=instructions or "",
+        )
+        return profile.model_dump(mode="json")
 
     @classmethod
     def _resolve_length_plan(cls, instructions: Optional[str]) -> Dict[str, int]:
@@ -392,6 +407,17 @@ NGỮ CẢNH DỮ LIỆU ĐÃ KIỂM ĐỊNH BẰNG PYTHON:
             doc_type = report.report_type or project.type or "business_report"
             length_plan = cls._resolve_length_plan(instructions)
             template_context = await cls._load_template_context(db, report)
+            template_profile = cls._build_template_profile_checkpoint(
+                template_context,
+                report_type=doc_type,
+                instructions=instructions,
+            )
+            await update_stage(
+                "understand_request",
+                15,
+                "Đã đọc yêu cầu, cấu trúc mẫu và quy chuẩn trích dẫn.",
+                {"template_profile": template_profile},
+            )
 
             # STAGE 2: Inspect Knowledge Base & Datasets
             await update_stage("inspect_knowledge_base", 25, "Đang đọc hiểu và tổng hợp tài liệu tham khảo...")
