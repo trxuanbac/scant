@@ -1,6 +1,9 @@
 import { formatApiErrorMessage } from "./apiErrors";
+import { resolveApiBase } from "./apiBase";
 
-export const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8050/api/v1";
+const CONFIGURED_API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8050/api/v1";
+
+export const API_BASE = resolveApiBase(CONFIGURED_API_BASE, typeof window !== "undefined");
 
 export function resolveApiDownloadUrl(downloadUrl?: string): string {
   if (!downloadUrl) return "#";
