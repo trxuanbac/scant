@@ -171,6 +171,26 @@ async def test_bootstrap_adopts_exact_prerelease_admin_schema(tmp_path):
     assert result.upgraded is True
 
 
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_bootstrap_adopts_unversioned_pre_analysis_schema_with_known_legacy_columns(tmp_path):
+    database_url = sqlite_url(tmp_path / "pre-analysis.sqlite")
+    await upgrade_database(database_url, "0002")
+    engine = create_async_engine(database_url)
+    async with engine.begin() as connection:
+        await connection.execute(text("ALTER TABLE template_versions ADD COLUMN raw_file_path VARCHAR(500)"))
+        await connection.execute(text("ALTER TABLE template_versions ADD COLUMN skeleton_xml TEXT"))
+        await connection.execute(text("ALTER TABLE workspaces ADD COLUMN description TEXT"))
+    await engine.dispose()
+    await remove_version_table(database_url)
+
+    result = await bootstrap_database(database_url)
+
+    assert result.initial_state == "pre_analysis"
+    assert result.final_revision == "0003"
+    assert result.upgraded is True
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "module_name",

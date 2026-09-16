@@ -35,6 +35,21 @@ def test_image_plan_skips_front_matter_and_uses_explicit_marker():
     assert plan[0].caption == "Sơ đồ kiến trúc"
 
 
+def test_image_plan_automatically_selects_a_relevant_section_without_marker():
+    sections = [
+        SimpleNamespace(id="overview", title="1. Tổng quan thị trường", level=1, plain_text="Phân tích quy mô và bối cảnh.", content_json={}),
+        SimpleNamespace(id="risk", title="2. Rủi ro", level=1, plain_text="Phân tích rủi ro.", content_json={}),
+        SimpleNamespace(id="refs", title="TÀI LIỆU THAM KHẢO", level=1, plain_text="", content_json={}),
+    ]
+
+    plan = auto_report_image_service.plan(sections, "Thị trường xe điện Việt Nam")
+
+    assert len(plan) == 1
+    assert plan[0].section_id == "overview"
+    assert "Thị trường xe điện Việt Nam" in plan[0].query
+    assert plan[0].purpose.startswith("Tự động")
+
+
 def test_image_candidate_relevance_rejects_unrelated_title():
     assert auto_report_image_service._candidate_score(
         "kiến trúc điện toán đám mây",

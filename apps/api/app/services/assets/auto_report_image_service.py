@@ -28,6 +28,15 @@ class AutoReportImageService:
         flags=re.IGNORECASE,
     )
     _SKIP_TITLES = ("loi mo dau", "loi noi dau", "muc luc", "tai lieu tham khao", "references", "bibliography")
+    _VISUAL_TITLES = (
+        "tong quan", "boi canh", "hien trang", "thi truong", "kien truc", "quy trinh",
+        "phuong phap", "cong nghe", "trien khai", "overview", "architecture", "process",
+        "market", "method", "implementation",
+    )
+    _STOP_WORDS = {
+        "bao", "cao", "phan", "tich", "tong", "quan", "chuong", "muc", "noi", "dung",
+        "report", "analysis", "section", "overview", "the", "and", "with", "from",
+    }
 
     @classmethod
     def _normalize(cls, value: str) -> str:
@@ -37,18 +46,41 @@ class AutoReportImageService:
 
     @classmethod
     def _tokens(cls, value: str) -> set[str]:
-        return {token for token in cls._normalize(value).split() if len(token) >= 3}
+        return {
+            token
+            for token in cls._normalize(value).split()
+            if len(token) >= 3 and token not in cls._STOP_WORDS and not token.isdigit()
+        }
+
+    @classmethod
+    def _has_image_node(cls, content_json: Any) -> bool:
+        if not isinstance(content_json, dict):
+            return False
+        if content_json.get("type") == "image":
+            return True
+        return any(cls._has_image_node(child) for child in content_json.get("content") or [])
 
     @classmethod
     def plan(cls, sections: Iterable[Any], topic: str, max_images: Optional[int] = None) -> List[ImagePlanItem]:
         section_list = list(sections)
-        limit = max_images if max_images is not None else max(1, min(6, len(section_list) // 2))
-        planned: List[ImagePlanItem] = []
+        eligible_sections = []
         for section in section_list:
             title = str(getattr(section, "title", "") or "").strip()
             normalized_title = cls._normalize(title)
-            if not title or any(marker in normalized_title for marker in cls._SKIP_TITLES):
+            if (
+                not title
+                or any(marker in normalized_title for marker in cls._SKIP_TITLES)
+                or cls._has_image_node(getattr(section, "content_json", None))
+            ):
                 continue
+            eligible_sections.append(section)
+
+        automatic_target = max_images if max_images is not None else max(1, min(3, (len(eligible_sections) + 5) // 6))
+        limit = max_images if max_images is not None else max(automatic_target, min(6, len(eligible_sections) // 2))
+        planned: List[ImagePlanItem] = []
+        planned_section_ids: set[str] = set()
+        for section in eligible_sections:
+            title = str(getattr(section, "title", "") or "").strip()
             plain_text = str(getattr(section, "plain_text", "") or "")
             match = cls._MARKER_RE.search(plain_text)
             if match:
@@ -57,6 +89,7 @@ class AutoReportImageService:
             else:
                 continue
             section_id = str(getattr(section, "id", "") or "")
+            planned_section_ids.add(section_id)
             planned.append(
                 ImagePlanItem(
                     id=hashlib.sha1(f"{section_id}:{query}".encode("utf-8")).hexdigest()[:20],
@@ -68,7 +101,37 @@ class AutoReportImageService:
                 )
             )
             if len(planned) >= limit:
-                break
+                return planned
+
+        # Models do not always emit an IMAGE marker. In that case, select a
+        # small number of substantive sections so the image stage still runs.
+        if len(planned) < automatic_target:
+            ranked = sorted(
+                eligible_sections,
+                key=lambda section: (
+                    -int(any(term in cls._normalize(str(getattr(section, "title", "") or "")) for term in cls._VISUAL_TITLES)),
+                    int(getattr(section, "level", 1) or 1),
+                    int(getattr(section, "position", 0) or 0),
+                ),
+            )
+            for section in ranked:
+                section_id = str(getattr(section, "id", "") or "")
+                if not section_id or section_id in planned_section_ids:
+                    continue
+                title = str(getattr(section, "title", "") or "").strip()
+                query = re.sub(r"\s+", " ", f"{topic} {title}").strip()
+                caption = f"Hình minh họa: {topic}"
+                planned.append(ImagePlanItem(
+                    id=hashlib.sha1(f"{section_id}:{query}:auto".encode("utf-8")).hexdigest()[:20],
+                    section_id=section_id,
+                    query=query,
+                    purpose=f"Tự động minh họa nội dung mục {title}",
+                    caption=caption,
+                    alt_text=caption,
+                ))
+                planned_section_ids.add(section_id)
+                if len(planned) >= automatic_target:
+                    break
         return planned
 
     @classmethod
@@ -157,6 +220,14 @@ class AutoReportImageService:
             key=lambda result: cls._candidate_score(item.query, result),
             reverse=True,
         )
+        if not results and str(item.purpose).startswith("Tự động"):
+            # The provider already ranks by the full report query. This fallback
+            # is useful for Vietnamese queries whose returned title is English.
+            results = [
+                result
+                for result in (payload.get("results") or [])[:3]
+                if result.get("sourcePageUrl") and result.get("title")
+            ]
         if not results:
             content_json, plain_text = cls._remove_internal_marker(section)
             await section_repo.update(
@@ -169,7 +240,7 @@ class AutoReportImageService:
                 plan_item=item.model_copy(update={"status": "skipped"}),
                 content_json=content_json,
                 plain_text=plain_text,
-                warning="Không tìm thấy ảnh web phù hợp.",
+                warning=str(payload.get("error") or "Không tìm thấy ảnh web phù hợp."),
             )
 
         last_error: Optional[Exception] = None

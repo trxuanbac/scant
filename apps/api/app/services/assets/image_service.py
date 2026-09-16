@@ -203,13 +203,27 @@ class ImageService:
         if license_mode in {"creative_commons", "free_to_use", "stock_free"}:
             params["license_type"] = "commercial"
 
-        try:
-            async with httpx.AsyncClient(timeout=8.0) as client:
-                response = await client.get("https://api.openverse.engineering/v1/images/", params=params)
-                response.raise_for_status()
-                payload = response.json()
-        except Exception:
-            return {"provider": "openverse", "results": []}
+        payload: Dict[str, Any] = {}
+        failures: List[str] = []
+        async with httpx.AsyncClient(timeout=8.0, follow_redirects=True) as client:
+            for endpoint in (
+                "https://api.openverse.org/v1/images/",
+                "https://api.openverse.engineering/v1/images/",
+            ):
+                try:
+                    response = await client.get(endpoint, params=params, headers={"User-Agent": "AIReportStudio/1.0"})
+                    response.raise_for_status()
+                    payload = response.json()
+                    if payload.get("results") is not None:
+                        break
+                except Exception as exc:
+                    failures.append(f"{urlparse(endpoint).netloc}: {type(exc).__name__}")
+        if not payload:
+            return {
+                "provider": "openverse",
+                "results": [],
+                "error": "Không kết nối được dịch vụ ảnh Openverse (" + ", ".join(failures) + ").",
+            }
 
         results: List[Dict[str, Any]] = []
         for item in payload.get("results", [])[:max_results]:

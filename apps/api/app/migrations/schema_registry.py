@@ -28,6 +28,13 @@ HEAD_ONLY_TABLES = frozenset(
 PRERELEASE_ADMIN_TABLES = frozenset(
     {"admin_configuration", "billing_payments", "billing_subscriptions"}
 )
+ANALYSIS_TABLES = frozenset({"analysis_sessions", "analysis_messages", "analysis_findings"})
+PRE_ANALYSIS_EXTRA_COLUMNS = MappingProxyType(
+    {
+        "template_versions": frozenset({"raw_file_path", "skeleton_xml"}),
+        "workspaces": frozenset({"description"}),
+    }
+)
 
 LEGACY_MISSING_COLUMNS = MappingProxyType(
     {
@@ -171,4 +178,25 @@ def is_known_prerelease_admin_schema(snapshot: SchemaSnapshot) -> bool:
             for table_name in PRERELEASE_ADMIN_TABLES
         }
     )
+    return _same_shape(snapshot.tables, expected)
+
+
+def is_known_pre_analysis_schema(snapshot: SchemaSnapshot) -> bool:
+    """Recognize the deployed 0002 shape before durable analysis sessions.
+
+    Some local databases were created from an older ORM registry that included
+    three additive template/workspace columns. They are harmless and must be
+    matched exactly here so the guarded adopter remains fail-closed.
+    """
+    expected = {
+        table_name: tuple(
+            column
+            for column in columns
+            if not (table_name == "workbook_actions" and column == "analysis_session_id")
+        )
+        for table_name, columns in HEAD_TABLE_COLUMNS.items()
+        if table_name not in ANALYSIS_TABLES
+    }
+    for table_name, extra_columns in PRE_ANALYSIS_EXTRA_COLUMNS.items():
+        expected[table_name] = (*expected[table_name], *sorted(extra_columns))
     return _same_shape(snapshot.tables, expected)

@@ -16,6 +16,7 @@ from app.migrations.alembic_api import (
 from app.migrations.schema_registry import (
     classify_unversioned_schema,
     inspect_schema,
+    is_known_pre_analysis_schema,
     is_known_prerelease_admin_schema,
 )
 
@@ -54,6 +55,8 @@ async def _schema_state(database_url: str) -> str:
     state = classify_unversioned_schema(snapshot)
     if state == "unknown" and is_known_prerelease_admin_schema(snapshot):
         return "legacy_prerelease_admin"
+    if state == "unknown" and is_known_pre_analysis_schema(snapshot):
+        return "pre_analysis"
     return state
 
 
@@ -82,6 +85,10 @@ async def bootstrap_database(database_url: str) -> MigrationResult:
         return MigrationResult(state, None, target, True)
     if state == "legacy_prerelease_admin":
         await stamp_database(database_url, "0001")
+        await upgrade_database(database_url)
+        return MigrationResult(state, None, target, True)
+    if state == "pre_analysis":
+        await stamp_database(database_url, "0002")
         await upgrade_database(database_url)
         return MigrationResult(state, None, target, True)
     if state == "head":
