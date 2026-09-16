@@ -118,12 +118,28 @@ async def test_analyze_action_find_max_real_execution(sample_multi_sheet_file):
         file_path=sample_multi_sheet_file,
         prompt="nhân viên thực lĩnh cao nhất",
         sheet_name="Bang_luong",
+        highlight_color="#FEF08A",
     )
     assert res["mode"] == "analysis_action"
     assert res["result_type"] == "row"
     assert "22.000.000" in res["answer"]
     assert res["evidence"]["operation"] == "MAX"
     assert_highlight_requires_confirmation(res)
+    assert res["pending_actions"][0]["color"] == "#FEF08A"
+
+
+@pytest.mark.asyncio
+async def test_find_max_keeps_selected_color_across_workbook_scope(sample_multi_sheet_file):
+    res = await workbook_chat_service.analyze_action(
+        file_path=sample_multi_sheet_file,
+        prompt="tìm dòng có giá trị cao nhất",
+        sheet_name="Bang_luong",
+        scope={"type": "workbook"},
+        highlight_color="#FEF08A",
+    )
+
+    assert {action["sheet"] for action in res["pending_actions"]} == {"Bang_luong", "Tong_hop"}
+    assert {action["color"] for action in res["pending_actions"]} == {"#FEF08A"}
 
 
 @pytest.mark.asyncio
@@ -314,4 +330,3 @@ def test_cross_file_compare():
             os.remove(path1)
         if os.path.exists(path2):
             os.remove(path2)
-

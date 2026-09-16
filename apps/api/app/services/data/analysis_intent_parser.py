@@ -178,7 +178,7 @@ class AnalysisIntentParser:
                 "sheet_mention": sheet_mention,
                 "column_mention": col_mention,
                 "target_type": target_type,
-                "color": effective_color if has_highlight_directive else "#BBF7D0",
+                "color": effective_color,
                 "has_highlight": has_highlight_directive,
                 "confidence": 0.95,
                 "metric": col_mention,
