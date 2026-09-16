@@ -679,10 +679,8 @@ class DocxExporter:
         else:
             insert_after = picture_para
 
-        source = attrs.get("sourceName") or getattr(asset, "source_domain", None)
-        license_value = attrs.get("license") or getattr(asset, "license", None)
-        if source or license_value:
-            source_text = "Nguồn ảnh: " + " · ".join([item for item in [source, license_value] if item])
+        source_text = cls._image_source_text(attrs, asset)
+        if source_text:
             source_para = cls._insert_paragraph_after(insert_after, source_text, style=None)
             source_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
             for run in source_para.runs:
@@ -691,6 +689,15 @@ class DocxExporter:
                 run.italic = True
             insert_after = source_para
         return insert_after
+
+    @classmethod
+    def _image_source_text(cls, attrs: Dict[str, Any], asset: Any) -> str:
+        source = attrs.get("sourceName") or getattr(asset, "source_domain", None)
+        source_url = attrs.get("sourceUrl") or getattr(asset, "source_page_url", None)
+        attribution = attrs.get("attribution") or getattr(asset, "attribution", None)
+        license_value = attrs.get("license") or getattr(asset, "license", None)
+        details = [str(item).strip() for item in [source, attribution, license_value, source_url] if item and str(item).strip()]
+        return f"Nguồn ảnh: {' · '.join(dict.fromkeys(details))}" if details else ""
 
     @classmethod
     def _insert_content_block_after(cls, insert_after, text: str):

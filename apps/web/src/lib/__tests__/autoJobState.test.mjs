@@ -5,6 +5,7 @@ import {
   AUTO_JOB_STATE_KEY,
   buildAutoJobSnapshot,
   canSafelySwitchAutoContext,
+  compactAutoJobMetadata,
   isAutoJobInFlight,
   shouldRestoreAutoJob,
 } from "../autoJobState.js";
@@ -18,6 +19,20 @@ test("detects in-flight auto jobs", () => {
   assert.equal(isAutoJobInFlight("cancelled"), false);
 });
 
+test("keeps only compact workflow metadata in local storage", () => {
+  const compact = compactAutoJobMetadata({
+    current_stage: "research",
+    pipeline: { research: { status: "running" } },
+    source_candidates: Array.from({ length: 100 }, (_, index) => ({ id: index, excerpt: "large".repeat(100) })),
+    claim_source_ledger: { large: true },
+  });
+
+  assert.deepEqual(compact, {
+    current_stage: "research",
+    pipeline: { research: { status: "running" } },
+  });
+});
+
 test("builds a restorable auto job snapshot while preserving active report", () => {
   const snapshot = buildAutoJobSnapshot({
     jobId: "job-1",
@@ -26,6 +41,8 @@ test("builds a restorable auto job snapshot while preserving active report", () 
     status: "running",
     progress: 42,
     statusMessage: "Dang soan thao...",
+    timeline: [{ stage: "research", progress: 45 }],
+    metadata: { current_stage: "research" },
   });
 
   assert.equal(snapshot.storageKey, AUTO_JOB_STATE_KEY);
@@ -36,6 +53,8 @@ test("builds a restorable auto job snapshot while preserving active report", () 
     status: "running",
     progress: 42,
     statusMessage: "Dang soan thao...",
+    timeline: [{ stage: "research", progress: 45 }],
+    metadata: { current_stage: "research" },
   });
 });
 

@@ -35,6 +35,7 @@ import {
   canSafelySwitchAutoContext,
   shouldRestoreAutoJob,
 } from "@/lib/autoJobState";
+import { buildReportResearchProgress, summarizeResearchSetup } from "@/lib/reportResearchProgress";
 import { formatUnknownError } from "@/lib/apiErrors";
 import { buildDatasetSourcePromptParts, hasDatasetSource } from "@/lib/datasetSource";
 import { getVisibleProjectTypes, normalizeNewProjectType } from "@/lib/productFocus";
@@ -582,6 +583,7 @@ function UniversalProjectWizardContent() {
   const [jobStatusMsg, setJobStatusMsg] = useState<string>("");
   const [jobStatus, setJobStatus] = useState<string>("");
   const [jobTimeline, setJobTimeline] = useState<any[]>([]);
+  const [jobMetadata, setJobMetadata] = useState<any>({});
   const [jobErrorMessage, setJobErrorMessage] = useState<string>("");
   const [jobNextAction, setJobNextAction] = useState<string>("");
   const [createdReportId, setCreatedReportId] = useState<string | null>(null);
@@ -752,6 +754,8 @@ function UniversalProjectWizardContent() {
       setCreatedReportId(saved.reportId || null);
       setJobStatus(saved.status || "running");
       setJobProgress(Number(saved.progress) || 0);
+      setJobTimeline(saved.timeline || []);
+      setJobMetadata(saved.metadata || {});
       setJobStatusMsg(
         saved.statusMessage ||
         (locale === "vi" ? "Đang khôi phục tiến trình tạo tài liệu..." : "Restoring document generation progress...")
@@ -772,13 +776,15 @@ function UniversalProjectWizardContent() {
         status: jobStatus,
         progress: jobProgress,
         statusMessage: jobStatusMsg,
+        timeline: jobTimeline,
+        metadata: jobMetadata,
       });
       window.localStorage.setItem(snapshot.storageKey, JSON.stringify(snapshot.value));
       return;
     }
 
     window.localStorage.removeItem("ai_report_studio:auto_job_state");
-  }, [activeJobId, createdReportId, jobProgress, jobStatus, jobStatusMsg, projectType]);
+  }, [activeJobId, createdReportId, jobMetadata, jobProgress, jobStatus, jobStatusMsg, jobTimeline, projectType]);
 
   // Polling Job Status for Auto Mode
   useEffect(() => {
@@ -791,6 +797,7 @@ function UniversalProjectWizardContent() {
         setJobStatusMsg(job.status_message);
         setJobStatus(job.status);
         setJobTimeline(job.timeline || job.metadata?.timeline || []);
+        setJobMetadata(job.metadata || {});
         setJobErrorMessage(job.error_message || "");
         setJobNextAction(job.next_action || "");
 
@@ -1085,6 +1092,7 @@ function UniversalProjectWizardContent() {
     setJobStatusMsg(copy.startingAuto);
     setJobStatus("queued");
     setJobTimeline([{ stage: "queued", progress: 0, message: copy.startingAuto }]);
+    setJobMetadata({});
     setJobErrorMessage("");
     setJobNextAction("");
     setAutoExportResult(null);
@@ -1190,6 +1198,7 @@ function UniversalProjectWizardContent() {
     await api.reports.cancelJob(activeJobId);
     setActiveJobId(null);
     setCreatedReportId(null);
+    setJobMetadata({});
     setIsAutoSubmitting(false);
   };
 
@@ -1473,6 +1482,8 @@ function UniversalProjectWizardContent() {
       ];
   const selectedDataSheet = dataPreview?.sheets?.find((sheet: any) => sheet.name === selectedDataSheetName) || dataPreview?.sheets?.[0];
   const selectedDataColumns = selectedDataSheet?.columns || [];
+  const researchStages = buildReportResearchProgress({ metadata: jobMetadata, timeline: jobTimeline, status: jobStatus });
+  const researchSummary = summarizeResearchSetup(jobMetadata);
 
   const openModuleScreen = (typeId: string) => {
     if (!guardAutoJobContextChange()) return;
@@ -1488,6 +1499,7 @@ function UniversalProjectWizardContent() {
     setStep(1);
     setActiveJobId(null);
     setCreatedReportId(null);
+    setJobMetadata({});
     setAutoExportResult(null);
     setError(null);
     setAutoPrompt(typeId === "data_analysis" ? "" : moduleCopy?.prompt || copy.defaultPrompt);
@@ -2554,7 +2566,7 @@ function UniversalProjectWizardContent() {
                 <div className="inline-flex p-3 rounded-lg bg-indigo-50 text-indigo-600">
                   {jobStatus === "completed" && !isExportingDocx ? (
                     <CheckCircle2 className="h-8 w-8" />
-                  ) : jobStatus === "failed" ? (
+                  ) : jobStatus === "failed" || jobStatus === "review_needed" ? (
                     <AlertCircle className="h-8 w-8 text-red-600" />
                   ) : (
                     <Sparkles className="h-8 w-8 animate-spin" />
@@ -2579,7 +2591,7 @@ function UniversalProjectWizardContent() {
                 </div>
                 <div className="h-3 w-full bg-slate-100 rounded-full overflow-hidden border border-slate-200">
                   <div
-                    className="h-full bg-gradient-to-r from-indigo-500 to-indigo-600 transition-all duration-500 rounded-full"
+                    className="h-full rounded-full bg-indigo-600 transition-all duration-500"
                     style={{ width: `${jobProgress}%` }}
                   />
                 </div>
@@ -2621,29 +2633,51 @@ function UniversalProjectWizardContent() {
                     </span>
                   </div>
                   <div className="mt-4 max-h-80 space-y-3 overflow-y-auto pr-1">
-                    {(jobTimeline.length ? jobTimeline : [{ stage: "queued", progress: jobProgress, message: jobStatusMsg }]).map((item, idx) => {
-                      const isLast = idx === (jobTimeline.length ? jobTimeline.length : 1) - 1;
+                    {researchStages.map((item) => {
+                      const isActive = item.status === "running";
+                      const isProblem = item.status === "failed" || item.status === "review";
+                      const isDone = item.status === "completed";
                       return (
-                        <div key={`${item.stage || "stage"}-${idx}`} className="flex gap-3 text-xs">
-                          <span className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full ${
-                            isLast && jobStatus !== "completed" && jobStatus !== "failed"
-                              ? "bg-indigo-100 text-indigo-700"
-                              : jobStatus === "failed" && isLast
-                                ? "bg-red-100 text-red-700"
-                                : "bg-emerald-100 text-emerald-700"
+                        <div key={item.id} className="flex gap-3 text-xs">
+                          <span className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border ${
+                            isActive
+                              ? "border-indigo-200 bg-indigo-50 text-indigo-700"
+                              : isProblem
+                                ? "border-amber-200 bg-amber-50 text-amber-700"
+                                : isDone
+                                  ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                                  : "border-slate-200 bg-white text-slate-400"
                           }`}>
-                            {jobStatus === "failed" && isLast ? <AlertCircle className="h-3 w-3" /> : <Check className="h-3 w-3" />}
+                            {isActive ? <RefreshCw className="h-3 w-3 animate-spin" /> : isProblem ? <AlertCircle className="h-3 w-3" /> : isDone ? <Check className="h-3 w-3" /> : <span className="h-1.5 w-1.5 rounded-full bg-current" />}
                           </span>
                           <div className="min-w-0">
-                            <div className="font-bold text-slate-800">{item.stage || (locale === "vi" ? "Đang xử lý" : "Processing")}</div>
-                            <div className="mt-0.5 leading-5 text-slate-500">{item.message || "-"}</div>
-                            <div className="mt-0.5 text-[11px] font-semibold text-slate-400">{item.progress ?? 0}%</div>
+                            <div className="font-bold text-slate-800">{item.label}</div>
+                            <div className="mt-0.5 leading-5 text-slate-500">
+                              {item.message || (item.status === "pending" ? "Đang chờ bước trước hoàn tất" : item.status === "completed" ? "Đã hoàn tất" : "Đang xử lý")}
+                            </div>
                           </div>
                         </div>
                       );
                     })}
                   </div>
+                  <dl className="mt-4 grid grid-cols-2 gap-x-3 gap-y-2 border-t border-slate-100 pt-4 text-[11px]">
+                    <div><dt className="text-slate-400">Cấu trúc</dt><dd className="mt-0.5 font-bold text-slate-700">{researchSummary.templateMode}</dd></div>
+                    <div><dt className="text-slate-400">Trích dẫn</dt><dd className="mt-0.5 font-bold text-slate-700">{researchSummary.citationStyle}</dd></div>
+                    <div><dt className="text-slate-400">Nguồn đã dùng</dt><dd className="mt-0.5 font-bold text-slate-700">{researchSummary.citedSources}/{researchSummary.sources}</dd></div>
+                    <div><dt className="text-slate-400">Ảnh có xuất xứ</dt><dd className="mt-0.5 font-bold text-slate-700">{researchSummary.images}</dd></div>
+                  </dl>
                 </div>
+
+                {researchSummary.blockingErrors.length > 0 && (
+                  <div role="alert" className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-xs text-amber-900">
+                    <p className="font-bold">Cần rà soát {researchSummary.blockingErrors.length} vấn đề</p>
+                    <ul className="mt-2 space-y-1.5">
+                      {researchSummary.blockingErrors.slice(0, 4).map((issue: any, index: number) => (
+                        <li key={`${issue.code}-${index}`} className="leading-5">• {issue.message}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
 
                 {jobNextAction && (
                   <div className="rounded-lg border border-indigo-100 bg-indigo-50 p-4 text-xs text-indigo-800">

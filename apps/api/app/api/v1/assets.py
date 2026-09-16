@@ -1,4 +1,3 @@
-from pathlib import Path
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
@@ -109,20 +108,18 @@ async def import_web_image(
     if req.report_id:
         await _ensure_report_owner(db, req.report_id, current_user)
     try:
-        data, final_url = await image_service.download_remote_image(str(req.image_url))
-        asset = await image_service.create_asset(
+        asset = await image_service.import_search_result(
             db,
             project_id=req.project_id,
             report_id=req.report_id,
             user_id=current_user.id,
-            file_name=Path(str(req.image_url)).name or "web-image",
-            data=data,
-            source_type="web",
-            original_url=final_url,
-            source_page_url=str(req.source_page_url) if req.source_page_url else None,
-            source_title=req.title,
-            license_value=req.license,
-            attribution=req.attribution,
+            result={
+                "imageUrl": str(req.image_url),
+                "sourcePageUrl": str(req.source_page_url) if req.source_page_url else None,
+                "title": req.title,
+                "license": req.license,
+                "attribution": req.attribution,
+            },
         )
     except ImageValidationError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

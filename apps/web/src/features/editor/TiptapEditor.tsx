@@ -1064,8 +1064,22 @@ export function TiptapEditor({
             Đổi ảnh
           </button>
           {selectedImageAssetId && (
-            <span className="truncate text-[11px] font-semibold text-slate-500">
-              Nguồn: {imageAttrs.sourceName || imageAttrs.sourceType || "asset"} {imageAttrs.license ? `· ${imageAttrs.license}` : ""}
+            imageAttrs.sourceUrl ? (
+              <a
+                href={imageAttrs.sourceUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="truncate text-[11px] font-semibold text-indigo-600 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+              >
+                Nguồn: {imageAttrs.sourceName || imageAttrs.sourceType || "asset"} {imageAttrs.license ? `· ${imageAttrs.license}` : ""}
+              </a>
+            ) : (
+              <span className="truncate text-[11px] font-semibold text-amber-700">Ảnh chưa có liên kết nguồn</span>
+            )
+          )}
+          {selectedImageAssetId && imageAttrs.attribution && (
+            <span className="max-w-72 truncate text-[11px] text-slate-500" title={imageAttrs.attribution}>
+              Ghi công: {imageAttrs.attribution}
             </span>
           )}
         </div>

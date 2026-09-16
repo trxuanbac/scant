@@ -91,6 +91,7 @@ async def test_one_click_auto_create_flow(
     retry_res = await client.post(f"/api/v1/reports/jobs/{job_id}/retry", headers=headers)
     assert retry_res.status_code == 200
     assert retry_res.json()["status"] == "running"
+    assert retry_res.json()["resume_from"]
 
 
 @pytest.mark.asyncio

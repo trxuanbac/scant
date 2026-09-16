@@ -1123,6 +1123,7 @@ async def retry_job(
 ):
     from app.repositories.base import BaseRepository
     from app.services.agent.agentic_report_orchestrator import agentic_orchestrator
+    from app.services.quality.report_integrity_service import report_integrity_service
 
     job_repo = BaseRepository[Job](Job)
     job = await job_repo.get(db, job_id)
@@ -1134,16 +1135,17 @@ async def retry_job(
     if not report_id:
         raise HTTPException(status_code=400, detail="Cannot retry: missing report_id in job metadata")
 
+    resume_from = report_integrity_service.resume_stage(job.metadata_json or {})
     await job_repo.update(db, db_obj=job, obj_in={
         "status": "running",
         "progress_percent": 5,
-        "status_message": "Đang thực hiện lại quy trình...",
+        "status_message": f"Đang tiếp tục từ bước {resume_from}...",
         "error_message": None,
+        "metadata_json": {**(job.metadata_json or {}), "retry_resume_from": resume_from},
     })
 
     asyncio.create_task(
         agentic_orchestrator.run_workflow(
-            db=db,
             job_id=job.id,
             project_id=job.project_id,
             report_id=report_id,
@@ -1151,7 +1153,12 @@ async def retry_job(
         )
     )
 
-    return {"job_id": job.id, "status": "running", "message": "Đã khởi động lại quy trình thành công."}
+    return {
+        "job_id": job.id,
+        "status": "running",
+        "resume_from": resume_from,
+        "message": "Đã khởi động lại quy trình thành công.",
+    }
 
 
 @router.get("/jobs/{job_id}")

@@ -1,4 +1,4 @@
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from typing import Dict, List, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -90,5 +90,4 @@ class IntegrityResult(StrictContract):
     blocking_errors: List[IntegrityIssue] = Field(default_factory=list)
     warnings: List[IntegrityIssue] = Field(default_factory=list)
     counts: Dict[str, int] = Field(default_factory=dict)
-    checked_at: datetime = Field(default_factory=datetime.utcnow)
-
+    checked_at: datetime = Field(default_factory=lambda: datetime.now(UTC))

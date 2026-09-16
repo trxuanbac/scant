@@ -1,5 +1,6 @@
 from app.services.agent.template_profile_service import template_profile_service
 from app.services.agent.agentic_report_orchestrator import AgenticReportOrchestrator
+from types import SimpleNamespace
 
 
 def test_template_profile_prefers_detected_template_citation_style():
@@ -56,3 +57,12 @@ def test_orchestrator_builds_serializable_template_profile_checkpoint():
 
     assert payload["schema_version"] == "1.0"
     assert payload["citation_style"] == "apa7"
+
+
+def test_orchestrator_identifies_required_sections_missing_from_outline():
+    missing = AgenticReportOrchestrator._missing_required_sections(
+        [SimpleNamespace(title="Chương 1"), SimpleNamespace(title="Kết luận")],
+        {"required_sections": ["KẾT LUẬN", "TÀI LIỆU THAM KHẢO"]},
+    )
+
+    assert missing == ["TÀI LIỆU THAM KHẢO"]

@@ -10,6 +10,11 @@ class BackgroundTaskTracker:
         self.tasks.add(task)
         return task
 
+    async def wait(self):
+        tasks = tuple(self.tasks)
+        if tasks:
+            await asyncio.gather(*tasks)
+
     async def close(self):
         tasks = tuple(self.tasks)
         for task in tasks:

@@ -3,8 +3,9 @@ import json
 import re
 import unicodedata
 from typing import Any, Dict, List, Optional
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.models.entities import Job, Report, ReportSection, Project, TemplateVersion
+from app.models.entities import ImageAsset, Job, Report, ReportSection, Project, TemplateVersion
 from app.repositories.base import BaseRepository
 from app.repositories.project_repo import project_repo, document_repo, file_repo
 from app.repositories.report_repo import report_repo, section_repo
@@ -14,6 +15,7 @@ from app.services.editor.outline_service import outline_service
 from app.services.research.search_engine import search_engine
 from app.services.quality.multi_profile_quality_engine import multi_profile_quality_engine
 from app.services.quality.grounding_guard import grounding_guard
+from app.services.quality.report_integrity_service import report_integrity_service
 from app.services.data.data_engine import data_engine
 from app.services.documents.docx_parser import docx_parser
 from app.services.templates.template_cleaner import template_cleaner
@@ -22,6 +24,7 @@ from app.services.agent.grounded_research_service import grounded_research_servi
 from app.services.agent.report_research_contracts import ClaimEvidence
 from app.services.agent.template_profile_service import template_profile_service
 from app.services.citations.bibliography_service import bibliography_service
+from app.services.assets.auto_report_image_service import auto_report_image_service
 
 
 class AgenticReportOrchestrator:
@@ -77,6 +80,24 @@ class AgenticReportOrchestrator:
         normalized = "".join(ch for ch in normalized if unicodedata.category(ch) != "Mn")
         normalized = re.sub(r"\s+", " ", normalized.lower().replace("đ", "d")).strip()
         return "tai lieu tham khao" in normalized or normalized in {"references", "bibliography"}
+
+    @classmethod
+    def _missing_required_sections(
+        cls,
+        sections: List[ReportSection],
+        template_profile: Dict[str, Any],
+    ) -> List[str]:
+        def normalize(value: str) -> str:
+            normalized = unicodedata.normalize("NFD", value or "")
+            normalized = "".join(ch for ch in normalized if unicodedata.category(ch) != "Mn")
+            return re.sub(r"[^a-z0-9]+", " ", normalized.lower().replace("đ", "d")).strip()
+
+        titles = {normalize(section.title) for section in sections}
+        return [
+            str(required)
+            for required in template_profile.get("required_sections") or []
+            if normalize(str(required)) not in titles
+        ]
 
     @classmethod
     def _collect_cited_source_ids(
@@ -422,7 +443,13 @@ NGỮ CẢNH DỮ LIỆU ĐÃ KIỂM ĐỊNH BẰNG PYTHON:
                     break
                 await asyncio.sleep(0.5)
 
-        async def update_stage(stage_name: str, progress: int, message: str, meta: Optional[Dict[str, Any]] = None):
+        async def update_stage(
+            stage_name: str,
+            progress: int,
+            message: str,
+            meta: Optional[Dict[str, Any]] = None,
+            completed_checkpoints: Optional[List[str]] = None,
+        ):
             await wait_if_paused()
             try:
                 job = await job_repo.get(db, job_id)
@@ -437,12 +464,38 @@ NGỮ CẢNH DỮ LIỆU ĐÃ KIỂM ĐỊNH BẰNG PYTHON:
                         "message": message,
                     })
                 timeline = timeline[-30:]
+                pipeline = dict(current_meta.get("pipeline") or {})
+                stage_checkpoint = {
+                    "understand_request": "template_profile",
+                    "research": "research",
+                    "draft_sections": "draft_sections",
+                    "image_research": "image_research",
+                    "run_quality_check": "integrity",
+                }.get(stage_name)
+                if stage_checkpoint:
+                    pipeline[stage_checkpoint] = {
+                        "status": "completed" if stage_checkpoint in (completed_checkpoints or []) else "running",
+                        "progress": progress,
+                        "message": message,
+                    }
+                for checkpoint in completed_checkpoints or []:
+                    pipeline[checkpoint] = {
+                        "status": "completed",
+                        "progress": progress,
+                        "message": message,
+                    }
                 terminal_status = stage_name if stage_name in {"completed", "review_needed", "failed", "cancelled"} else "completed"
                 await job_repo.update(db, db_obj=job, obj_in={
                     "status": "running" if progress < 100 else terminal_status,
                     "progress_percent": progress,
                     "status_message": message,
-                    "metadata_json": {**current_meta, **(meta or {}), "current_stage": stage_name, "timeline": timeline}
+                    "metadata_json": {
+                        **current_meta,
+                        **(meta or {}),
+                        "current_stage": stage_name,
+                        "timeline": timeline,
+                        "pipeline": pipeline,
+                    }
                 })
             except Exception:
                 pass
@@ -469,6 +522,7 @@ NGỮ CẢNH DỮ LIỆU ĐÃ KIỂM ĐỊNH BẰNG PYTHON:
                 15,
                 "Đã đọc yêu cầu, cấu trúc mẫu và quy chuẩn trích dẫn.",
                 {"template_profile": template_profile},
+                completed_checkpoints=["template_profile"],
             )
 
             # STAGE 2: Inspect Knowledge Base & Datasets
@@ -522,6 +576,23 @@ NGỮ CẢNH DỮ LIỆU ĐÃ KIỂM ĐỊNH BẰNG PYTHON:
 
                 for item in outline_res.outline:
                     await create_outline_section(item)
+
+            # Required structural sections are materialized before drafting. The
+            # bibliography is generated later from sources actually cited.
+            for required_title in cls._missing_required_sections(sections, template_profile):
+                if cls._is_reference_section(required_title):
+                    continue
+                required_section = await section_repo.create(db, obj_in={
+                    "report_id": report.id,
+                    "title": required_title,
+                    "position": max((section.position for section in sections), default=0) + 1,
+                    "level": 1,
+                    "status": "planned",
+                    "plain_text": f"{required_title}\n\nNội dung đang được soạn thảo...",
+                    "content_json": writing_engine._text_to_tiptap_json(required_title, 1),
+                    "word_count": len(required_title.split()),
+                })
+                sections.append(required_section)
 
             # STAGE 5: Plan section-specific research, search, normalize, and bind evidence.
             await update_stage("research", 45, "Đang lập kế hoạch và tìm nguồn riêng cho từng chương mục...")
@@ -589,6 +660,7 @@ NGỮ CẢNH DỮ LIỆU ĐÃ KIỂM ĐỊNH BẰNG PYTHON:
                         for section_id, items in evidence_packets.items()
                     },
                 },
+                completed_checkpoints=["research"],
             )
 
             # STAGE 6: High-Speed Parallel Section Drafting
@@ -649,6 +721,8 @@ NGỮ CẢNH DỮ LIỆU ĐÃ KIỂM ĐỊNH BẰNG PYTHON:
                         "không tự tạo lại bìa, mục lục hoặc thông tin sinh viên trong nội dung chương. "
                         "Nếu có dataset, chỉ dùng số liệu trong SECTION-SCOPED GROUNDED CONTEXT, không tự tính lại KPI. "
                         "Không để lộ FACT_, prompt nội bộ hoặc placeholder vào nội dung cuối. "
+                        "Chỉ khi ảnh thực sự giúp người đọc hiểu nội dung, đặt tối đa một dòng "
+                        "[[IMAGE:title=<chú thích>;prompt=<từ khóa tìm ảnh cụ thể>]]; nếu ảnh không cần thiết thì không đặt marker. "
                         "Khi có bảng/biểu đồ, labels và values phải khớp với verified facts được phép dùng."
                     )
 
@@ -776,6 +850,12 @@ NGỮ CẢNH DỮ LIỆU ĐÃ KIỂM ĐỊNH BẰNG PYTHON:
                         "citation_style": template_profile["citation_style"],
                     },
                 }
+                if draft_res.get("is_reference_section") or cls._is_reference_section(sec.title):
+                    summary_json["bibliography"] = {
+                        "style": bibliography_result.style,
+                        "source_ids": bibliography_result.source_ids,
+                        "generated_from_citations": True,
+                    }
                 web_grounding_valid = not draft_res.get("invalid_citations") and not draft_res.get("unsupported_claims")
                 await section_repo.update(db, db_obj=sec, obj_in={
                     "status": "draft" if validation.get("valid", True) and web_grounding_valid else "review_needed",
@@ -820,7 +900,62 @@ NGỮ CẢNH DỮ LIỆU ĐÃ KIỂM ĐỊNH BẰNG PYTHON:
                 })
                 sections.append(reference_section)
 
-            # STAGE 6: Quality Check & Finalization
+            await update_stage(
+                "draft_sections",
+                85,
+                f"Đã soạn {len(sections)} mục và tạo tài liệu tham khảo từ {len(bibliography_result.source_ids)} nguồn được trích dẫn.",
+                {
+                    "bibliography": bibliography_result.model_dump(mode="json"),
+                },
+                completed_checkpoints=["draft_sections", "bibliography"],
+            )
+
+            # STAGE 7: Resolve AI image requests with real web assets.
+            image_plan = auto_report_image_service.plan(sections, project.name)
+            image_results: List[Dict[str, Any]] = []
+            image_warnings: List[str] = []
+            if image_plan:
+                await update_stage("image_research", 88, f"Đang tìm và kiểm tra {len(image_plan)} ảnh minh họa phù hợp...")
+                sections_by_id = {section.id: section for section in sections}
+                for item in image_plan:
+                    section = sections_by_id.get(item.section_id)
+                    if section is None:
+                        image_warnings.append(f"Không tìm thấy mục cho kế hoạch ảnh {item.id}.")
+                        continue
+                    try:
+                        image_result = await auto_report_image_service.import_and_insert(
+                            db,
+                            item,
+                            project_id=project_id,
+                            report_id=report_id,
+                            user_id=project.user_id,
+                            section=section,
+                        )
+                    except Exception as exc:
+                        image_warnings.append(f"{section.title}: {exc}")
+                        continue
+                    image_results.append({
+                        "plan_id": item.id,
+                        "section_id": item.section_id,
+                        "status": image_result.status,
+                        "asset_id": getattr(image_result.asset, "id", None),
+                        "warning": image_result.warning,
+                    })
+                    if image_result.warning:
+                        image_warnings.append(f"{section.title}: {image_result.warning}")
+            await update_stage(
+                "image_research",
+                92,
+                f"Đã xử lý {len(image_plan)} yêu cầu ảnh; chèn thành công {sum(1 for item in image_results if item['status'] == 'inserted')} ảnh.",
+                {
+                    "image_plan": [item.model_dump(mode="json") for item in image_plan],
+                    "image_results": image_results,
+                    "image_warnings": image_warnings,
+                },
+                completed_checkpoints=["image_research"],
+            )
+
+            # STAGE 8: Quality Check & Finalization
             await update_stage("run_quality_check", 95, "Đang kiểm định chất lượng và hoàn tất tài liệu...")
             quality = multi_profile_quality_engine.evaluate(
                 profile=doc_type,
@@ -833,17 +968,44 @@ NGỮ CẢNH DỮ LIỆU ĐÃ KIỂM ĐỊNH BẰNG PYTHON:
                 quality["overall_score"] = min(quality["overall_score"], 59)
                 quality["is_ready_to_export"] = False
 
-            final_status = "completed" if grounding_gate.get("final", True) else "review_needed"
+            sections = await section_repo.get_by_report(db, report_id)
+            image_query = await db.execute(select(ImageAsset).where(ImageAsset.report_id == report_id))
+            images = list(image_query.scalars().all())
+            integrity_result = report_integrity_service.validate(
+                sections=sections,
+                sources=sources,
+                images=images,
+                template_profile=template_profile,
+            )
+            integrity_payload = integrity_result.model_dump(mode="json")
+            await update_stage(
+                "run_quality_check",
+                98,
+                (
+                    "Đã kiểm tra nguồn, trích dẫn, tài liệu tham khảo và xuất xứ ảnh."
+                    if integrity_result.ready
+                    else f"Phát hiện {len(integrity_result.blocking_errors)} vấn đề cần rà soát trước khi xuất bản."
+                ),
+                {"integrity_result": integrity_payload},
+                completed_checkpoints=["integrity"],
+            )
+
+            final_status = "completed" if grounding_gate.get("final", True) and integrity_result.ready else "review_needed"
             final_message = (
                 f"Báo cáo hoàn chỉnh sẵn sàng. Điểm chất lượng: {quality['overall_score']}/100."
                 if final_status == "completed"
-                else "Báo cáo đã tạo nhưng cần rà soát vì phát hiện nội dung/số liệu chưa bám dữ liệu nguồn."
+                else "Báo cáo đã tạo nhưng cần rà soát vấn đề về nội dung, nguồn trích dẫn hoặc xuất xứ ảnh."
             )
             await update_stage(
                 final_status,
                 100,
                 final_message,
-                {"quality_score": quality["overall_score"], "report_id": report.id, "grounding_gate": grounding_gate}
+                {
+                    "quality_score": quality["overall_score"],
+                    "report_id": report.id,
+                    "grounding_gate": grounding_gate,
+                    "integrity_result": integrity_payload,
+                }
             )
             fresh_report = await report_repo.get(db, report_id)
             if fresh_report:
@@ -852,6 +1014,7 @@ NGỮ CẢNH DỮ LIỆU ĐÃ KIỂM ĐỊNH BẰNG PYTHON:
                     "document_settings_json": {
                         **(fresh_report.document_settings_json or {}),
                         "grounding_gate": grounding_gate,
+                        "integrity_result": integrity_payload,
                     },
                 })
 
@@ -860,6 +1023,7 @@ NGỮ CẢNH DỮ LIỆU ĐÃ KIỂM ĐỊNH BẰNG PYTHON:
                 "quality_score": quality["overall_score"],
                 "report_id": report.id,
                 "sections_count": len(sections),
+                "integrity_result": integrity_payload,
             }
 
         except asyncio.CancelledError:

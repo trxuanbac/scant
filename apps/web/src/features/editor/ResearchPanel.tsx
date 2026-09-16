@@ -1,14 +1,11 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useCallback, useState, useEffect } from "react";
 import {
   Search,
   Globe,
   ExternalLink,
-  ShieldCheck,
-  Plus,
   RefreshCw,
-  BookmarkPlus,
   BookOpen,
 } from "lucide-react";
 import { api } from "@/lib/api";
@@ -24,26 +21,30 @@ export function ResearchPanel({ projectId, onInsertCitation }: ResearchPanelProp
   const [sources, setSources] = useState<any[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [mode, setMode] = useState("standard");
+  const [sourceFilter, setSourceFilter] = useState<"all" | "cited" | "unused">("all");
 
   const [isDoiModalOpen, setIsDoiModalOpen] = useState(false);
+  const visibleSources = sources
+    .map((source, sourceIndex) => ({ source, sourceIndex }))
+    .filter(({ source }) => sourceFilter === "all" || (sourceFilter === "cited" ? source.citation_count > 0 : !source.citation_count));
 
-  useEffect(() => {
-    loadSources();
-  }, [projectId]);
-
-  const loadSources = async () => {
+  const loadSources = useCallback(async () => {
     try {
       const list = await api.research.listSources(projectId);
       setSources(list);
     } catch {}
-  };
+  }, [projectId]);
+
+  useEffect(() => {
+    void loadSources();
+  }, [loadSources]);
 
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!query.trim()) return;
     setIsSearching(true);
     try {
-      const res = await api.research.search(projectId, query, mode);
+      await api.research.search(projectId, query, mode);
       await loadSources();
     } catch {}
     finally {
@@ -114,13 +115,29 @@ export function ResearchPanel({ projectId, onInsertCitation }: ResearchPanelProp
       </div>
 
       {/* Sources List */}
+      <div className="flex items-center gap-1 border-b border-slate-100 px-3.5 py-2" aria-label="Lọc nguồn theo trạng thái sử dụng">
+        {([
+          ["all", `Tất cả ${sources.length}`],
+          ["cited", `Đã trích dẫn ${sources.filter((source) => source.citation_count > 0).length}`],
+          ["unused", `Chưa sử dụng ${sources.filter((source) => !source.citation_count).length}`],
+        ] as const).map(([value, label]) => (
+          <button
+            key={value}
+            type="button"
+            onClick={() => setSourceFilter(value)}
+            className={`rounded-md px-2 py-1 text-[10px] font-bold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 ${sourceFilter === value ? "bg-slate-900 text-white" : "text-slate-500 hover:bg-slate-100 hover:text-slate-800"}`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
       <div className="flex-1 overflow-y-auto p-3 space-y-2.5">
-        {sources.length === 0 ? (
+        {visibleSources.length === 0 ? (
           <div className="p-6 text-center text-slate-400 italic">
-            Chưa có nguồn tài liệu. Nhập từ khóa ở trên để tìm kiếm nguồn học thuật chính thức.
+            {sources.length === 0 ? "Chưa có nguồn tài liệu. Nhập từ khóa ở trên để tìm kiếm nguồn phù hợp." : "Không có nguồn nào trong bộ lọc này."}
           </div>
         ) : (
-          sources.map((src, idx) => (
+          visibleSources.map(({ source: src, sourceIndex }) => (
             <div
               key={src.id}
               className="p-3 bg-white rounded-xl border border-slate-200 hover:border-indigo-300 transition-all space-y-2 shadow-xs"
@@ -128,21 +145,28 @@ export function ResearchPanel({ projectId, onInsertCitation }: ResearchPanelProp
               <div className="flex items-start justify-between gap-2">
                 <div className="flex items-center gap-1.5 flex-1 min-w-0">
                   <span className="h-5 w-5 rounded bg-indigo-50 text-indigo-700 font-bold text-[10px] flex items-center justify-center shrink-0">
-                    [{idx + 1}]
+                    [{sourceIndex + 1}]
                   </span>
                   <h4 className="font-bold text-slate-900 truncate">{src.title}</h4>
                 </div>
 
                 <div className="flex items-center gap-1 shrink-0">
-                  <span className="px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 text-[9px] font-bold border border-emerald-200">
-                    {Math.round(src.reliability_score * 100)}%
+                  <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold border ${
+                    src.verification_status === "VERIFIED"
+                      ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                      : src.verification_status === "PARTIALLY_VERIFIED"
+                        ? "border-amber-200 bg-amber-50 text-amber-700"
+                        : "border-slate-200 bg-slate-50 text-slate-600"
+                  }`}>
+                    {src.verification_status === "VERIFIED" ? "Đã kiểm chứng" : src.verification_status === "PARTIALLY_VERIFIED" ? "Đã đối chiếu" : "Cần kiểm tra"}
                   </span>
-                  {src.url && (
+                  {(src.canonical_url || src.url) && (
                     <a
-                      href={src.url}
+                      href={src.canonical_url || src.url}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="p-1 text-slate-400 hover:text-indigo-600 transition-colors"
+                      aria-label={`Mở nguồn ${src.title}`}
                     >
                       <ExternalLink className="h-3 w-3" />
                     </a>
@@ -151,17 +175,20 @@ export function ResearchPanel({ projectId, onInsertCitation }: ResearchPanelProp
               </div>
 
               <p className="text-[11px] text-slate-500 line-clamp-2 leading-relaxed">
-                {src.summary || "Tài liệu kỹ thuật chính thức."}
+                {src.summary || src.content_extracted || "Nguồn chưa có phần tóm tắt."}
               </p>
 
               <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-[10px] text-slate-400">
-                <span>{src.publisher || "Publisher"} ({src.published_date || "2024"})</span>
+                <span className="min-w-0 truncate">
+                  {[src.publisher || src.organization, src.published_date || src.publication_year].filter(Boolean).join(" · ") || src.domain_trust || src.source_type}
+                  {src.citation_count > 0 ? ` · ${src.citation_count} trích dẫn` : ""}
+                </span>
                 {onInsertCitation && (
                   <button
-                    onClick={() => onInsertCitation(`[${idx + 1}]`)}
+                    onClick={() => onInsertCitation(`[${sourceIndex + 1}]`)}
                     className="text-indigo-600 font-bold hover:underline"
                   >
-                    + Chèn [{idx + 1}]
+                    + Chèn [{sourceIndex + 1}]
                   </button>
                 )}
               </div>

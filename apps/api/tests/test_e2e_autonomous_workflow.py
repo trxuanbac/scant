@@ -42,6 +42,7 @@ async def test_full_autonomous_workspace_e2e_workflow(
     # Check Job
     job_res = await client.get(f"/api/v1/reports/jobs/{job_id}", headers=headers)
     assert job_res.status_code == 200
+    await background_task_tracker.wait()
 
     # 3. Document Agent Execution
     agent_res = await client.post("/api/v1/ai/agent/execute-turn", json={

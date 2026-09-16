@@ -10,6 +10,8 @@ const IN_FLIGHT_STATUSES = new Set(["queued", "running", "paused"]);
  * @property {string} status
  * @property {number} [progress]
  * @property {string} [statusMessage]
+ * @property {Array} [timeline]
+ * @property {Object} [metadata]
  */
 
 export function isAutoJobInFlight(status) {
@@ -24,6 +26,20 @@ export function shouldRestoreAutoJob(value) {
   return Boolean(value?.jobId && isAutoJobInFlight(value.status));
 }
 
+export function compactAutoJobMetadata(metadata = {}) {
+  const keys = [
+    "current_stage",
+    "pipeline",
+    "template_profile",
+    "bibliography",
+    "image_results",
+    "image_warnings",
+    "integrity_result",
+    "report_id",
+  ];
+  return Object.fromEntries(keys.filter((key) => metadata?.[key] !== undefined).map((key) => [key, metadata[key]]));
+}
+
 /**
  * @param {AutoJobSnapshotInput} input
  */
@@ -34,6 +50,8 @@ export function buildAutoJobSnapshot({
   status,
   progress = 0,
   statusMessage = "",
+  timeline = [],
+  metadata = {},
 }) {
   return {
     storageKey: AUTO_JOB_STATE_KEY,
@@ -44,6 +62,8 @@ export function buildAutoJobSnapshot({
       status,
       progress,
       statusMessage,
+      timeline,
+      metadata: compactAutoJobMetadata(metadata),
     },
   };
 }

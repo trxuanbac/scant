@@ -233,6 +233,34 @@ class ImageService:
             })
         return {"provider": "openverse", "results": results}
 
+    async def import_search_result(
+        self,
+        db: AsyncSession,
+        *,
+        project_id: str,
+        report_id: Optional[str],
+        user_id: Optional[str],
+        result: Dict[str, Any],
+    ) -> ImageAsset:
+        image_url = str(result.get("imageUrl") or result.get("image_url") or "").strip()
+        if not image_url:
+            raise ImageValidationError("Kết quả tìm kiếm không có URL ảnh.")
+        data, final_url = await self.download_remote_image(image_url)
+        return await self.create_asset(
+            db,
+            project_id=project_id,
+            report_id=report_id,
+            user_id=user_id,
+            file_name=Path(urlparse(image_url).path).name or "web-image",
+            data=data,
+            source_type="web",
+            original_url=final_url,
+            source_page_url=str(result.get("sourcePageUrl") or result.get("source_page_url") or "") or None,
+            source_title=str(result.get("title") or "") or None,
+            license_value=str(result.get("license") or "") or None,
+            attribution=str(result.get("attribution") or "") or None,
+        )
+
     def suggest_queries(self, section_title: str, section_text: str, report_title: str, max_queries: int = 6) -> List[str]:
         base = " ".join([report_title, section_title]).strip()
         text = section_text[:400]
