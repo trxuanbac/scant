@@ -11,13 +11,13 @@ from app.repositories.source_repo import source_repo
 from app.services.editor.writing_engine import writing_engine
 from app.services.editor.outline_service import outline_service
 from app.services.research.search_engine import search_engine
-from app.services.research.source_ranker import source_ranker
 from app.services.quality.multi_profile_quality_engine import multi_profile_quality_engine
 from app.services.quality.grounding_guard import grounding_guard
 from app.services.data.data_engine import data_engine
 from app.services.documents.docx_parser import docx_parser
 from app.services.templates.template_cleaner import template_cleaner
 from app.services.agent.report_context_builder import report_context_builder
+from app.services.agent.grounded_research_service import grounded_research_service
 from app.services.agent.template_profile_service import template_profile_service
 
 
@@ -425,32 +425,13 @@ NGỮ CẢNH DỮ LIỆU ĐÃ KIỂM ĐỊNH BẰNG PYTHON:
             files = await file_repo.get_multi(db, project_id=project_id)
             dataset_context = cls._build_dataset_context(files, docs)
 
-            # STAGE 3: Collect Evidence & Sources
-            await update_stage("research", 45, "Đang rà soát và đối chiếu nguồn tài liệu uy tín...")
+            # STAGE 3: Load user-provided and previously verified sources.
             sources = await source_repo.get_by_project(db, project_id)
-            if not sources and not (doc_type == "data_analysis" and dataset_context["has_dataset"]):
-                provider = search_engine.get_search_provider()
-                raw = await provider.search(project.name, max_results=4)
-                ranked = source_ranker.rank_sources(raw)
-                for item in ranked:
-                    src = await source_repo.create(db, obj_in={
-                        "project_id": project_id,
-                        "title": item["title"],
-                        "url": item["url"],
-                        "authors": item.get("authors", "Official Author"),
-                        "publisher": item.get("publisher", "Web Publisher"),
-                        "published_date": item.get("published_date", "2024"),
-                        "source_type": item.get("source_type", "website"),
-                        "reliability_score": item["reliability_score"],
-                        "summary": item.get("snippet", ""),
-                        "content_extracted": item.get("snippet", ""),
-                    })
-                    sources.append(src)
 
             # STAGE 4: Outline Generation
             sections = await section_repo.get_by_report(db, report_id)
             if not sections:
-                await update_stage("generate_outline", 60, "Đang thiết kế cấu trúc đề cương logic...")
+                await update_stage("generate_outline", 35, "Đang thiết kế cấu trúc đề cương logic...")
                 outline_res = await outline_service.generate_outline(
                     type("Req", (), {
                         "topic_name": project.name,
@@ -490,7 +471,75 @@ NGỮ CẢNH DỮ LIỆU ĐÃ KIỂM ĐỊNH BẰNG PYTHON:
                 for item in outline_res.outline:
                     await create_outline_section(item)
 
-            # STAGE 5: High-Speed Parallel Section Drafting
+            # STAGE 5: Plan section-specific research, search, normalize, and bind evidence.
+            await update_stage("research", 45, "Đang lập kế hoạch và tìm nguồn riêng cho từng chương mục...")
+            research_plan = grounded_research_service.build_plan(project.name, sections, doc_type)
+            candidates = grounded_research_service.from_persisted_sources(sources)
+            candidates_by_url = {item.canonical_url: item for item in candidates}
+            existing_urls = set(candidates_by_url)
+
+            should_search_web = not (doc_type == "data_analysis" and dataset_context["has_dataset"])
+            if should_search_web:
+                provider = search_engine.get_search_provider()
+                for question in research_plan.questions:
+                    try:
+                        raw_results = await provider.search(question.query, max_results=4)
+                    except Exception:
+                        raw_results = []
+                    for candidate in grounded_research_service.normalize_results(raw_results, question.query):
+                        current = candidates_by_url.get(candidate.canonical_url)
+                        if current and grounded_research_service._score(current) >= grounded_research_service._score(candidate):
+                            continue
+                        candidates_by_url[candidate.canonical_url] = candidate
+
+                for candidate in sorted(candidates_by_url.values(), key=grounded_research_service._score, reverse=True):
+                    if candidate.canonical_url in existing_urls:
+                        continue
+                    src = await source_repo.create(db, obj_in={
+                        "project_id": project_id,
+                        "title": candidate.title,
+                        "url": candidate.canonical_url,
+                        "canonical_url": candidate.canonical_url,
+                        "authors": candidate.author_or_organization,
+                        "publisher": candidate.publisher,
+                        "published_date": candidate.published_at,
+                        "source_type": candidate.source_type,
+                        "provider": "web",
+                        "language": candidate.language or "vi",
+                        "reliability_score": candidate.trust_score,
+                        "summary": candidate.excerpt or None,
+                        "content_extracted": candidate.excerpt or None,
+                        "access_status": "open" if candidate.retrieval_status == "available" else "restricted",
+                        "verification_status": "PARTIALLY_VERIFIED",
+                        "verification_score": round(candidate.trust_score * 100),
+                        "domain_trust": "OFFICIAL" if candidate.trust_score >= 0.95 else "GENERAL_WEB",
+                        "metadata_json": {
+                            "research_scores": {
+                                "trust": candidate.trust_score,
+                                "relevance": candidate.relevance_score,
+                                "freshness": candidate.freshness_score,
+                            }
+                        },
+                    })
+                    sources.append(src)
+
+            candidates = grounded_research_service.from_persisted_sources(sources)
+            evidence_packets = grounded_research_service.build_evidence_packets(sections, candidates)
+            await update_stage(
+                "research",
+                55,
+                f"Đã thu thập {len(candidates)} nguồn và liên kết bằng chứng theo từng mục.",
+                {
+                    "research_plan": research_plan.model_dump(mode="json"),
+                    "source_candidates": [item.model_dump(mode="json") for item in candidates],
+                    "claim_source_ledger": {
+                        section_id: [item.model_dump(mode="json") for item in items]
+                        for section_id, items in evidence_packets.items()
+                    },
+                },
+            )
+
+            # STAGE 6: High-Speed Parallel Section Drafting
             section_word_targets = cls._allocate_section_word_targets(sections, length_plan)
             await update_stage(
                 "draft_sections",

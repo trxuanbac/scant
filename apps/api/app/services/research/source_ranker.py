@@ -7,7 +7,8 @@ class SourceRanker:
     OFFICIAL_DOMAINS = [
         "microsoft.com", "spring.io", "react.dev", "angular.dev", "vuejs.org",
         "python.org", "djangoproject.com", "fastapi.tiangolo.com", "nodejs.org",
-        "w3.org", "ietf.org", "iso.org", "ietf.org"
+        "w3.org", "ietf.org", "iso.org", ".gov.vn", ".gov", "chinhphu.vn",
+        "vbpl.vn", "who.int", "worldbank.org", "oecd.org", "un.org"
     ]
 
     ACADEMIC_DOMAINS = [
