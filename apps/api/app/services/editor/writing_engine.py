@@ -6,10 +6,146 @@ from app.services.ai.gateway import ai_gateway
 from app.services.ai.types import AIRequest, AITaskType
 from app.services.citations.claim_validator import claim_validator
 from app.services.citations.citation_formatter import citation_formatter
+from app.services.agent.report_research_contracts import ClaimEvidence, SourceCandidate
 
 
 class WritingEngine:
     """AI Enterprise & Academic Writing Engine with genuine citations and section-by-section generation."""
+
+    _STABLE_CITATION_RE = re.compile(r"\[SRC:([a-zA-Z0-9-]+)\]")
+
+    @classmethod
+    def _extract_stable_source_ids(cls, text: str, allowed: set[str]) -> tuple[List[str], List[str]]:
+        found = list(dict.fromkeys(cls._STABLE_CITATION_RE.findall(text or "")))
+        return [item for item in found if item in allowed], [item for item in found if item not in allowed]
+
+    @classmethod
+    def _unsupported_specific_claims(cls, text: str, allowed: set[str]) -> List[str]:
+        unsupported: List[str] = []
+        for sentence in re.split(r"(?<=[.!?])\s+|\n+", text or ""):
+            cleaned = sentence.strip()
+            if not cleaned or cleaned.startswith("[["):
+                continue
+            has_specific_fact = bool(
+                re.search(r"\b(?:19|20)\d{2}\b|\d+(?:[.,]\d+)?\s*%|\b\d+(?:[.,]\d+)?\s*(?:triệu|tỷ|nghìn|USD|VND)\b", cleaned, re.IGNORECASE)
+            )
+            cited_ids = set(cls._STABLE_CITATION_RE.findall(cleaned))
+            if has_specific_fact and not (cited_ids & allowed):
+                unsupported.append(cleaned)
+        return unsupported
+
+    @classmethod
+    async def draft_grounded_section(
+        cls,
+        section_title: str,
+        section_level: int,
+        topic_name: str,
+        evidence: List[ClaimEvidence],
+        sources_by_id: Dict[str, SourceCandidate],
+        citation_labels: Dict[str, str],
+        instruction: Optional[str] = None,
+        tone: str = "professional",
+        target_words: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        allowed_ids = {
+            source_id
+            for item in evidence
+            if item.verification_status == "verified"
+            for source_id in item.source_ids
+            if source_id in sources_by_id
+        }
+        scoped_sources = [sources_by_id[source_id] for source_id in sorted(allowed_ids)]
+        source_lines = []
+        for source in scoped_sources:
+            metadata = " · ".join(
+                value
+                for value in [source.author_or_organization, source.publisher, source.published_at]
+                if value
+            )
+            source_lines.append(
+                f"[SRC:{source.id}] {source.title}{f' ({metadata})' if metadata else ''}\n"
+                f"URL: {source.canonical_url}\nBằng chứng: {source.excerpt or 'Không có trích đoạn.'}"
+            )
+        evidence_lines = [
+            f"- {item.planned_claim}\n  Trích đoạn hỗ trợ: {' | '.join(item.supporting_excerpts) or 'Không có'}\n"
+            f"  Nguồn được phép: {', '.join(f'[SRC:{source_id}]' for source_id in item.source_ids if source_id in allowed_ids)}"
+            for item in evidence
+            if item.verification_status == "verified"
+        ]
+        system_prompt = (
+            "Bạn là chuyên gia viết báo cáo có căn cứ. Chỉ dùng nguồn trong gói bằng chứng của mục này. "
+            "Mọi số liệu, ngày, luật, xếp hạng hoặc nhận định cụ thể phải đặt marker [SRC:<id>] ngay sau câu. "
+            "Không dùng nguồn ngoài danh sách, không đoán metadata và không tự viết danh mục tài liệu tham khảo. "
+            "Nếu bằng chứng không đủ, hãy mô tả giới hạn thay vì tự tạo dữ kiện."
+        )
+        user_prompt = f"""
+ĐỀ TÀI: {topic_name}
+MỤC ĐANG VIẾT: {section_title} (Heading {section_level})
+ĐỘ DÀI MỤC TIÊU: {target_words or 300} từ
+YÊU CẦU: {instruction or 'Viết rõ ràng, có phân tích và bám sát bằng chứng.'}
+
+NGUỒN ĐƯỢC PHÉP DÙNG CHO RIÊNG MỤC NÀY:
+{chr(10).join(source_lines) or 'Không có nguồn web đủ điều kiện.'}
+
+SỔ LUẬN ĐIỂM - BẰNG CHỨNG:
+{chr(10).join(evidence_lines) or 'Không có luận điểm thực chứng đã xác minh. Chỉ được viết phân tích khái quát và nêu giới hạn nguồn.'}
+
+Viết nội dung hoàn chỉnh cho đúng mục trên. Giữ nguyên marker [SRC:<id>] để hệ thống dựng trích dẫn.
+""".strip()
+        source_dicts = [
+            {
+                "id": source.id,
+                "title": source.title,
+                "publisher": source.publisher,
+                "published_date": source.published_at,
+                "summary": source.excerpt,
+            }
+            for source in scoped_sources
+        ]
+        try:
+            ai_res = await asyncio.wait_for(
+                ai_gateway.execute(
+                    AIRequest(
+                        task_type=AITaskType.SECTION_WRITING,
+                        prompt=user_prompt,
+                        system_prompt=system_prompt,
+                        temperature=0.3,
+                    )
+                ),
+                timeout=80,
+            )
+            raw_text = (ai_res.text or "").strip()
+            tokens_used = getattr(getattr(ai_res, "usage", None), "total_tokens", 0) or 0
+        except Exception:
+            raw_text = cls._build_fallback_draft(
+                section_title=section_title,
+                topic_name=topic_name,
+                instruction=instruction,
+                tone=tone,
+                sources=source_dicts,
+                target_words=target_words,
+            )
+            tokens_used = 0
+
+        citations_found, invalid_citations = cls._extract_stable_source_ids(raw_text, allowed_ids)
+        unsupported_claims = cls._unsupported_specific_claims(raw_text, allowed_ids)
+        rendered_text = raw_text
+        for source_id in invalid_citations:
+            rendered_text = rendered_text.replace(f"[SRC:{source_id}]", "")
+        for source_id in citations_found:
+            rendered_text = rendered_text.replace(f"[SRC:{source_id}]", citation_labels.get(source_id, ""))
+        rendered_text = re.sub(r"[ \t]+([.,;:])", r"\1", rendered_text)
+
+        return {
+            "plain_text": rendered_text,
+            "tiptap_json": cls._text_to_tiptap_json(rendered_text, section_level),
+            "word_count": len(rendered_text.split()),
+            "tokens_used": tokens_used,
+            "citations_found": citations_found,
+            "invalid_citations": invalid_citations,
+            "unsupported_claims": unsupported_claims,
+            "source_ids": sorted(allowed_ids),
+        }
 
     @classmethod
     async def draft_section(

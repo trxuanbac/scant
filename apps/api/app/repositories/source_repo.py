@@ -83,6 +83,19 @@ class CitationRepository(BaseRepository[Citation]):
         return list(result.scalars().all())
 
 
+class ClaimSourceRepository(BaseRepository[ClaimSource]):
+    def __init__(self):
+        super().__init__(ClaimSource)
+
+    async def get_by_section(self, db: AsyncSession, section_id: str) -> List[ClaimSource]:
+        result = await db.execute(
+            select(ClaimSource)
+            .where(ClaimSource.report_section_id == section_id)
+            .order_by(ClaimSource.created_at.asc())
+        )
+        return list(result.scalars().all())
+
+
 class TemplateRepository(BaseRepository[Template]):
     def __init__(self):
         super().__init__(Template)
@@ -101,6 +114,6 @@ source_repo = SourceRepository()
 evidence_repo = EvidenceRepository()
 claim_repo = ClaimRepository()
 citation_repo = CitationRepository()
-claim_source_repo = BaseRepository[ClaimSource](ClaimSource)
+claim_source_repo = ClaimSourceRepository()
 template_repo = TemplateRepository()
 template_version_repo = BaseRepository[TemplateVersion](TemplateVersion)

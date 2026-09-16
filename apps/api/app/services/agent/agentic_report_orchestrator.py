@@ -7,7 +7,7 @@ from app.models.entities import Job, Report, ReportSection, Project, TemplateVer
 from app.repositories.base import BaseRepository
 from app.repositories.project_repo import project_repo, document_repo, file_repo
 from app.repositories.report_repo import report_repo, section_repo
-from app.repositories.source_repo import source_repo
+from app.repositories.source_repo import claim_source_repo, source_repo
 from app.services.editor.writing_engine import writing_engine
 from app.services.editor.outline_service import outline_service
 from app.services.research.search_engine import search_engine
@@ -18,6 +18,7 @@ from app.services.documents.docx_parser import docx_parser
 from app.services.templates.template_cleaner import template_cleaner
 from app.services.agent.report_context_builder import report_context_builder
 from app.services.agent.grounded_research_service import grounded_research_service
+from app.services.agent.report_research_contracts import ClaimEvidence
 from app.services.agent.template_profile_service import template_profile_service
 
 
@@ -40,6 +41,33 @@ class AgenticReportOrchestrator:
             explicit_requirements=instructions or "",
         )
         return profile.model_dump(mode="json")
+
+    @classmethod
+    def _claim_source_payloads(
+        cls,
+        section_id: str,
+        draft_result: Dict[str, Any],
+        evidence_items: List[ClaimEvidence],
+    ) -> List[Dict[str, Any]]:
+        cited = set(draft_result.get("citations_found") or [])
+        payloads: List[Dict[str, Any]] = []
+        seen: set[tuple[str, str]] = set()
+        for item in evidence_items:
+            for source_id in item.source_ids:
+                key = (source_id, item.claim_id)
+                if source_id not in cited or key in seen:
+                    continue
+                seen.add(key)
+                payloads.append({
+                    "report_section_id": section_id,
+                    "source_id": source_id,
+                    "citation_id": None,
+                    "claim_text": item.planned_claim,
+                    "evidence_text": item.supporting_excerpts[0] if item.supporting_excerpts else item.planned_claim,
+                    "confidence_score": item.confidence,
+                    "verification_status": item.verification_status,
+                })
+        return payloads
 
     @classmethod
     def _resolve_length_plan(cls, instructions: Optional[str]) -> Dict[str, int]:
@@ -546,7 +574,21 @@ NGỮ CẢNH DỮ LIỆU ĐÃ KIỂM ĐỊNH BẰNG PYTHON:
                 75,
                 f"Đang đồng loạt soạn thảo {len(sections)} chương mục, mục tiêu ~{length_plan['body_pages']} trang nội dung..."
             )
-            sources_payload = [{"title": s.title, "publisher": s.publisher, "summary": s.summary, "reliability_score": s.reliability_score} for s in sources]
+            sources_payload = [
+                {
+                    "id": s.id,
+                    "title": s.title,
+                    "url": s.canonical_url or s.url,
+                    "authors": s.authors or s.organization,
+                    "publisher": s.publisher,
+                    "published_date": s.published_date or s.publication_year,
+                    "summary": s.summary,
+                    "reliability_score": s.reliability_score,
+                }
+                for s in sources
+            ]
+            sources_by_id = {candidate.id: candidate for candidate in candidates}
+            citation_labels = {candidate.id: f"[{index}]" for index, candidate in enumerate(candidates, 1)}
 
             async def draft_one_section(sec: ReportSection):
                 try:
@@ -600,23 +642,36 @@ NGỮ CẢNH DỮ LIỆU ĐÃ KIỂM ĐỊNH BẰNG PYTHON:
                                 f"Validation errors: {json.dumps(validation_result.get('errors', []), ensure_ascii=False)}\n"
                                 "Viết lại mục này, loại bỏ số/entity/claim sai và chỉ dùng verified facts được phép."
                             )
-                        draft_res = await writing_engine.draft_section(
-                            section_title=sec.title,
-                            section_level=sec.level,
-                            topic_name=project.name,
-                            sources=sources_payload,
-                            instruction=base_instruction + repair_note,
-                            tone="professional",
-                            target_words=section_target_words,
-                        )
-                        min_words = max(140, min(section_target_words // 2, 700))
-                        if cls._is_placeholder_or_too_short(draft_res.get("plain_text", ""), min_words):
-                            draft_res = cls._fallback_section_draft(
+                        if dataset_context["has_dataset"]:
+                            draft_res = await writing_engine.draft_section(
                                 section_title=sec.title,
                                 section_level=sec.level,
                                 topic_name=project.name,
-                                sources_payload=sources_payload,
-                                instructions=base_instruction,
+                                sources=sources_payload,
+                                instruction=base_instruction + repair_note,
+                                tone="professional",
+                                target_words=section_target_words,
+                            )
+                            min_words = max(140, min(section_target_words // 2, 700))
+                            if cls._is_placeholder_or_too_short(draft_res.get("plain_text", ""), min_words):
+                                draft_res = cls._fallback_section_draft(
+                                    section_title=sec.title,
+                                    section_level=sec.level,
+                                    topic_name=project.name,
+                                    sources_payload=sources_payload,
+                                    instructions=base_instruction,
+                                    target_words=section_target_words,
+                                )
+                        else:
+                            draft_res = await writing_engine.draft_grounded_section(
+                                section_title=sec.title,
+                                section_level=sec.level,
+                                topic_name=project.name,
+                                evidence=evidence_packets.get(sec.id, []),
+                                sources_by_id=sources_by_id,
+                                citation_labels=citation_labels,
+                                instruction=base_instruction,
+                                tone="professional",
                                 target_words=section_target_words,
                             )
                         draft_res["plain_text"] = cls._deduplicate_paragraphs(draft_res.get("plain_text", ""))
@@ -672,15 +727,35 @@ NGỮ CẢNH DỮ LIỆU ĐÃ KIỂM ĐỊNH BẰNG PYTHON:
                         "repair_count": draft_res.get("repair_count", 0),
                         "prompt_version": "grounded_section_v1",
                         "temperature": 0.4,
-                    }
+                    },
+                    "web_grounding": {
+                        "source_ids": draft_res.get("citations_found", []),
+                        "eligible_source_ids": draft_res.get("source_ids", []),
+                        "invalid_citations": draft_res.get("invalid_citations", []),
+                        "unsupported_claims": draft_res.get("unsupported_claims", []),
+                        "prompt_version": "grounded_web_section_v1",
+                    },
                 }
+                web_grounding_valid = not draft_res.get("invalid_citations") and not draft_res.get("unsupported_claims")
                 await section_repo.update(db, db_obj=sec, obj_in={
-                    "status": "draft" if validation.get("valid", True) else "review_needed",
+                    "status": "draft" if validation.get("valid", True) and web_grounding_valid else "review_needed",
                     "plain_text": draft_res["plain_text"],
                     "content_json": draft_res["tiptap_json"],
                     "word_count": draft_res["word_count"],
                     "structured_summary_json": summary_json,
                 })
+                claim_rows = cls._claim_source_payloads(
+                    section_id=sec.id,
+                    draft_result=draft_res,
+                    evidence_items=evidence_packets.get(sec.id, []),
+                )
+                existing_claim_sources = await claim_source_repo.get_by_section(db, sec.id)
+                existing_keys = {(item.source_id, item.claim_text) for item in existing_claim_sources}
+                for payload in claim_rows:
+                    key = (payload["source_id"], payload["claim_text"])
+                    if key not in existing_keys:
+                        await claim_source_repo.create(db, obj_in=payload)
+                        existing_keys.add(key)
 
             # STAGE 6: Quality Check & Finalization
             await update_stage("run_quality_check", 95, "Đang kiểm định chất lượng và hoàn tất tài liệu...")
