@@ -33,6 +33,9 @@ import { api, API_BASE } from "@/lib/api";
 import {
   buildAutoJobSnapshot,
   canSafelySwitchAutoContext,
+  getAutoExportFailureMessage,
+  getAutoJobNextActionMessage,
+  getAutoJobUiState,
   shouldRestoreAutoJob,
 } from "@/lib/autoJobState";
 import { buildReportResearchProgress, summarizeResearchSetup } from "@/lib/reportResearchProgress";
@@ -590,6 +593,7 @@ function UniversalProjectWizardContent() {
   const [isAutoSubmitting, setIsAutoSubmitting] = useState(false);
   const [isExportingDocx, setIsExportingDocx] = useState(false);
   const [autoExportResult, setAutoExportResult] = useState<any | null>(null);
+  const [autoExportFailed, setAutoExportFailed] = useState(false);
   const exportStartedRef = useRef(false);
   const autoFileInputRef = useRef<HTMLInputElement | null>(null);
   const restoredAutoJobRef = useRef(false);
@@ -671,6 +675,49 @@ function UniversalProjectWizardContent() {
     const apiOrigin = API_BASE.replace(/\/api\/v1\/?$/, "");
     return `${apiOrigin}${downloadUrl.startsWith("/") ? downloadUrl : `/${downloadUrl}`}`;
   };
+
+  const exportAutoReportDocx = useCallback(async (reportId: string, reviewCopy = false) => {
+    setIsExportingDocx(true);
+    setAutoExportFailed(false);
+    setError(null);
+    setJobStatusMsg(
+      reviewCopy && locale === "vi"
+        ? "Đang xuất bản Word hiện tại để bạn tiếp tục rà soát..."
+        : reviewCopy
+          ? "Exporting the current Word draft for review..."
+          : copy.exportingTemplate
+    );
+    try {
+      const exportRes = await api.exports.exportDocx({
+        report_id: reportId,
+        export_format: "docx",
+        include_cover: true,
+        include_toc: true,
+        include_references: true,
+        citation_style: "IEEE",
+        review_draft: reviewCopy,
+      });
+      setAutoExportResult(exportRes);
+      setAutoExportFailed(false);
+      setJobStatusMsg(
+        reviewCopy
+          ? locale === "vi"
+            ? "Đã xuất bản Word hiện tại. Bạn vẫn nên kiểm tra các nội dung được đánh dấu."
+            : "The current Word draft was exported. Review the flagged items before publishing."
+          : copy.completedDesc
+      );
+    } catch (exportErr: any) {
+      const failureMessage = getAutoExportFailureMessage(reviewCopy, locale);
+      setAutoExportFailed(true);
+      setJobStatusMsg(failureMessage);
+      setError(formatUnknownError(
+        exportErr,
+        failureMessage,
+      ));
+    } finally {
+      setIsExportingDocx(false);
+    }
+  }, [copy.completedDesc, copy.exportingTemplate, locale]);
 
   const guardAutoJobContextChange = useCallback(() => {
     if (!activeJobId || canSafelySwitchAutoContext(jobStatus)) return true;
@@ -788,7 +835,7 @@ function UniversalProjectWizardContent() {
 
   // Polling Job Status for Auto Mode
   useEffect(() => {
-    if (!activeJobId) return;
+    if (!activeJobId || getAutoJobUiState(jobStatus, 0, locale).terminal) return;
 
     const interval = setInterval(async () => {
       try {
@@ -812,34 +859,21 @@ function UniversalProjectWizardContent() {
           setJobProgress(100);
           if (repId && !exportStartedRef.current) {
             exportStartedRef.current = true;
-            setIsExportingDocx(true);
-            setJobStatusMsg(copy.exportingTemplate);
-            try {
-              const exportRes = await api.exports.exportDocx({
-                report_id: repId,
-                export_format: "docx",
-                include_cover: true,
-                include_toc: true,
-                include_references: true,
-                citation_style: "IEEE",
-              });
-              setAutoExportResult(exportRes);
-              setJobStatusMsg(copy.completedDesc);
-            } catch (exportErr: any) {
-              setError(formatUnknownError(exportErr, locale === "vi" ? "Đã sinh nội dung nhưng chưa xuất được file Word theo mẫu." : "Content was generated, but the templated Word export failed."));
-            } finally {
-              setIsExportingDocx(false);
-            }
+            await exportAutoReportDocx(repId);
           }
         } else if (job.status === "review_needed") {
           clearInterval(interval);
           setIsAutoSubmitting(false);
           setJobProgress(100);
-          setError(formatUnknownError(job.status_message, locale === "vi" ? "Báo cáo đã tạo nhưng cần rà soát trước khi xuất Word." : "The report was created but needs review before Word export."));
-        } else if (job.status === "failed") {
+          setError(null);
+        } else if (getAutoJobUiState(job.status, 0, locale).terminal) {
           clearInterval(interval);
-          setError(formatUnknownError(job.status_message, copy.autoFailed));
           setIsAutoSubmitting(false);
+          setError(
+            job.status === "failed"
+              ? formatUnknownError(job.status_message, copy.autoFailed)
+              : null,
+          );
         }
       } catch (err) {
         console.error("Job status check error:", err);
@@ -847,7 +881,7 @@ function UniversalProjectWizardContent() {
     }, 1500);
 
     return () => clearInterval(interval);
-  }, [activeJobId, createdReportId, copy.autoFailed, copy.completedDesc, copy.exportingTemplate, locale]);
+  }, [activeJobId, createdReportId, copy.autoFailed, exportAutoReportDocx, jobStatus, locale]);
 
   const handleTemplateFileChange = async (file: File | null) => {
     setAutoTemplateFile(file);
@@ -1096,6 +1130,7 @@ function UniversalProjectWizardContent() {
     setJobErrorMessage("");
     setJobNextAction("");
     setAutoExportResult(null);
+    setAutoExportFailed(false);
     setIsExportingDocx(false);
     exportStartedRef.current = false;
 
@@ -1206,12 +1241,19 @@ function UniversalProjectWizardContent() {
     if (!activeJobId) return;
     setError(null);
     setIsAutoSubmitting(true);
-    setJobStatus("running");
     setJobStatusMsg(locale === "vi" ? "Đang chạy lại quy trình..." : "Retrying workflow...");
     try {
       await api.reports.retryJob(activeJobId);
+      setJobStatus("running");
+      setJobErrorMessage("");
+      setJobNextAction("");
+      setAutoExportResult(null);
+      setAutoExportFailed(false);
+      exportStartedRef.current = false;
     } catch (err: any) {
-      setError(formatUnknownError(err, locale === "vi" ? "Không thể chạy lại quy trình." : "Could not retry the workflow."));
+      const retryError = locale === "vi" ? "Không thể chạy lại quy trình." : "Could not retry the workflow.";
+      setJobStatusMsg(retryError);
+      setError(formatUnknownError(err, retryError));
       setIsAutoSubmitting(false);
     }
   };
@@ -1484,6 +1526,14 @@ function UniversalProjectWizardContent() {
   const selectedDataColumns = selectedDataSheet?.columns || [];
   const researchStages = buildReportResearchProgress({ metadata: jobMetadata, timeline: jobTimeline, status: jobStatus });
   const researchSummary = summarizeResearchSetup(jobMetadata);
+  const reviewIssues = researchSummary.reviewIssues || [];
+  const autoJobUi = getAutoJobUiState(jobStatus, reviewIssues.length, locale);
+  const autoJobTone = autoExportFailed ? "error" : autoJobUi.tone;
+  const autoJobTitle = autoExportFailed
+    ? jobStatus === "review_needed"
+      ? (locale === "vi" ? "Báo cáo cần rà soát – chưa xuất được Word" : "Report needs review – Word export failed")
+      : (locale === "vi" ? "Báo cáo đã tạo – chưa xuất được Word" : "Report created – Word export failed")
+    : autoJobUi.title;
 
   const openModuleScreen = (typeId: string) => {
     if (!guardAutoJobContextChange()) return;
@@ -1501,6 +1551,7 @@ function UniversalProjectWizardContent() {
     setCreatedReportId(null);
     setJobMetadata({});
     setAutoExportResult(null);
+    setAutoExportFailed(false);
     setError(null);
     setAutoPrompt(typeId === "data_analysis" ? "" : moduleCopy?.prompt || copy.defaultPrompt);
     setAutoRequirements("");
@@ -2562,20 +2613,72 @@ function UniversalProjectWizardContent() {
             /* REALTIME PIPELINE PROGRESS */
             <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_340px]">
               <div className="space-y-6">
-              <div className="space-y-2 rounded-lg border border-slate-200 bg-slate-50 p-5 text-center">
-                <div className="inline-flex p-3 rounded-lg bg-indigo-50 text-indigo-600">
-                  {jobStatus === "completed" && !isExportingDocx ? (
+              <div
+                role="status"
+                aria-live="polite"
+                aria-atomic="true"
+                aria-busy={!autoJobUi.terminal || isExportingDocx}
+                className={`space-y-3 rounded-lg border p-5 text-center ${
+                autoJobTone === "review"
+                  ? "border-amber-200 bg-amber-50"
+                  : autoJobTone === "success"
+                    ? "border-emerald-200 bg-emerald-50"
+                    : autoJobTone === "error"
+                      ? "border-red-200 bg-red-50"
+                      : "border-slate-200 bg-slate-50"
+              }`}
+              >
+                <div className={`inline-flex rounded-lg p-3 ${
+                  autoJobTone === "review"
+                    ? "bg-amber-100 text-amber-700"
+                    : autoJobTone === "success"
+                      ? "bg-emerald-100 text-emerald-700"
+                      : autoJobTone === "error"
+                        ? "bg-red-100 text-red-700"
+                        : "bg-indigo-50 text-indigo-600"
+                }`}>
+                  {jobStatus === "completed" && !isExportingDocx && !autoExportFailed ? (
                     <CheckCircle2 className="h-8 w-8" />
-                  ) : jobStatus === "failed" || jobStatus === "review_needed" ? (
-                    <AlertCircle className="h-8 w-8 text-red-600" />
+                  ) : autoJobTone === "error" || autoJobTone === "review" ? (
+                    <AlertCircle className="h-8 w-8" />
                   ) : (
                     <Sparkles className="h-8 w-8 animate-spin" />
                   )}
                 </div>
                 <h3 className="text-base font-bold text-slate-900">
-                  {jobStatus === "completed" && autoExportResult ? copy.completedTitle : copy.autoRunningTitle}
+                  {autoJobTitle}
                 </h3>
                 <p className="text-xs text-slate-500 max-w-md mx-auto">{jobStatusMsg}</p>
+                {jobStatus === "review_needed" && reviewIssues.length > 0 && (
+                  <div className="mx-auto max-w-2xl rounded-lg border border-amber-200 bg-white p-3 text-left">
+                    <p className="text-xs font-bold text-amber-950">
+                      {locale === "vi" ? "Nội dung cần kiểm tra" : "Items to review"}
+                    </p>
+                    <ul className="mt-2 space-y-1.5 text-xs leading-5 text-amber-900">
+                      {reviewIssues.slice(0, 3).map((issue: any, index: number) => (
+                        <li key={`${issue.source}-${issue.code}-${index}`} className="flex items-start gap-2">
+                          <span className={`mt-0.5 shrink-0 rounded px-1.5 py-0.5 text-[10px] font-bold ${
+                            issue.severity === "warning"
+                              ? "bg-amber-100 text-amber-800"
+                              : "bg-red-50 text-red-700"
+                          }`}>
+                            {issue.severity === "warning"
+                              ? (locale === "vi" ? "Lưu ý" : "Warning")
+                              : (locale === "vi" ? "Cần sửa" : "Issue")}
+                          </span>
+                          <span>{issue.message}</span>
+                        </li>
+                      ))}
+                    </ul>
+                    {reviewIssues.length > 3 && (
+                      <p className="mt-2 text-[11px] font-semibold text-amber-800">
+                        {locale === "vi"
+                          ? `Còn ${reviewIssues.length - 3} nội dung khác trong nhật ký rà soát.`
+                          : `${reviewIssues.length - 3} more item(s) are listed in the review log.`}
+                      </p>
+                    )}
+                  </div>
+                )}
                 {jobErrorMessage && (
                   <p className="mx-auto mt-2 max-w-xl rounded-md border border-red-200 bg-red-50 px-3 py-2 text-left text-xs font-medium text-red-700">
                     {jobErrorMessage}
@@ -2589,10 +2692,17 @@ function UniversalProjectWizardContent() {
                   <span>{copy.progress}</span>
                   <span className="text-indigo-600">{jobProgress}%</span>
                 </div>
-                <div className="h-3 w-full bg-slate-100 rounded-full overflow-hidden border border-slate-200">
+                <div
+                  role="progressbar"
+                  aria-label={copy.progress}
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-valuenow={Math.max(0, Math.min(100, Math.round(jobProgress)))}
+                  className="h-3 w-full overflow-hidden rounded-full border border-slate-200 bg-slate-100"
+                >
                   <div
                     className="h-full rounded-full bg-indigo-600 transition-all duration-500"
-                    style={{ width: `${jobProgress}%` }}
+                    style={{ width: `${Math.max(0, Math.min(100, jobProgress))}%` }}
                   />
                 </div>
               </div>
@@ -2601,8 +2711,16 @@ function UniversalProjectWizardContent() {
                 <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4">
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                     <div>
-                      <p className="text-sm font-bold text-emerald-900">{copy.completedTitle}</p>
-                      <p className="mt-1 text-xs text-emerald-700">{copy.completedDesc}</p>
+                      <p className="text-sm font-bold text-emerald-900">
+                        {jobStatus === "review_needed"
+                          ? (locale === "vi" ? "Bản Word rà soát đã sẵn sàng" : "Word review draft is ready")
+                          : copy.completedTitle}
+                      </p>
+                      <p className="mt-1 text-xs text-emerald-700">
+                        {jobStatus === "review_needed"
+                          ? (locale === "vi" ? "Tải bản hiện tại và kiểm tra các nội dung được đánh dấu trước khi xuất bản." : "Download this draft and check flagged items before publishing.")
+                          : copy.completedDesc}
+                      </p>
                     </div>
                     <a
                       href={resolveDownloadUrl(autoExportResult.download_url)}
@@ -2610,7 +2728,11 @@ function UniversalProjectWizardContent() {
                       className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-emerald-600 px-4 py-2 text-xs font-bold text-white transition hover:bg-emerald-700"
                     >
                       <FileText className="h-3.5 w-3.5" />
-                      <span>{copy.downloadDocx}</span>
+                      <span>
+                        {jobStatus === "review_needed"
+                          ? (locale === "vi" ? "Tải bản Word rà soát" : "Download review draft")
+                          : copy.downloadDocx}
+                      </span>
                     </a>
                   </div>
                 </div>
@@ -2668,12 +2790,23 @@ function UniversalProjectWizardContent() {
                   </dl>
                 </div>
 
-                {researchSummary.blockingErrors.length > 0 && (
+                {reviewIssues.length > 0 && (
                   <div role="alert" className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-xs text-amber-900">
-                    <p className="font-bold">Cần rà soát {researchSummary.blockingErrors.length} vấn đề</p>
+                    <p className="font-bold">
+                      {jobStatus === "review_needed"
+                        ? (locale === "vi" ? `Cần rà soát ${reviewIssues.length} nội dung` : `${reviewIssues.length} item(s) need review`)
+                        : (locale === "vi" ? `${reviewIssues.length} lưu ý về báo cáo` : `${reviewIssues.length} report warning(s)`)}
+                    </p>
                     <ul className="mt-2 space-y-1.5">
-                      {researchSummary.blockingErrors.slice(0, 4).map((issue: any, index: number) => (
-                        <li key={`${issue.code}-${index}`} className="leading-5">• {issue.message}</li>
+                      {reviewIssues.slice(0, 4).map((issue: any, index: number) => (
+                        <li key={`${issue.source}-${issue.code}-${index}`} className="leading-5">
+                          <span className="font-semibold">
+                            {issue.severity === "warning"
+                              ? (locale === "vi" ? "Lưu ý: " : "Warning: ")
+                              : (locale === "vi" ? "Cần sửa: " : "Issue: ")}
+                          </span>
+                          {issue.message}
+                        </li>
                       ))}
                     </ul>
                   </div>
@@ -2682,15 +2815,7 @@ function UniversalProjectWizardContent() {
                 {jobNextAction && (
                   <div className="rounded-lg border border-indigo-100 bg-indigo-50 p-4 text-xs text-indigo-800">
                     <p className="font-bold text-indigo-950">{locale === "vi" ? "Hành động tiếp theo" : "Next action"}</p>
-                    <p className="mt-1 leading-5">
-                      {jobNextAction === "open_report"
-                        ? locale === "vi" ? "Báo cáo đã sẵn sàng, bạn có thể mở Studio để chỉnh sửa." : "The report is ready. Open Studio to edit."
-                        : jobNextAction === "retry"
-                          ? locale === "vi" ? "Quy trình lỗi. Có thể chạy lại sau khi xem thông báo lỗi." : "The workflow failed. You can retry after reviewing the error."
-                          : jobNextAction === "resume"
-                            ? locale === "vi" ? "Quy trình đang tạm dừng, bấm Tiếp tục để chạy tiếp." : "The workflow is paused. Resume it to continue."
-                            : locale === "vi" ? "Tiếp tục chờ hệ thống xử lý." : "Keep waiting for the workflow to proceed."}
-                    </p>
+                    <p className="mt-1 leading-5">{getAutoJobNextActionMessage(jobNextAction, locale)}</p>
                   </div>
                 )}
               </aside>
@@ -2698,19 +2823,52 @@ function UniversalProjectWizardContent() {
               {/* Controls */}
               <div className="lg:col-span-2 flex flex-wrap items-center justify-center gap-3 border-t border-slate-100 pt-4">
                 {isExportingDocx && (
-                  <div className="flex items-center gap-2 rounded-lg bg-slate-50 px-3 py-2 text-xs font-bold text-slate-600">
+                  <div className="flex items-center gap-2 rounded-lg bg-slate-50 px-3 py-2 text-xs font-bold text-slate-600" aria-live="polite">
                     <RefreshCw className="h-3.5 w-3.5 animate-spin" />
-                    <span>{copy.exportingTemplate}</span>
+                    <span>
+                      {jobStatus === "review_needed"
+                        ? (locale === "vi" ? "Đang tạo bản Word rà soát..." : "Creating the Word review draft...")
+                        : copy.exportingTemplate}
+                    </span>
                   </div>
                 )}
 
                 {createdReportId && (
                   <button
+                    type="button"
                     onClick={() => router.push(`/reports/${createdReportId}/editor`)}
-                    className="flex items-center gap-1.5 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold transition-colors"
+                    className="flex items-center gap-1.5 rounded-lg bg-indigo-600 px-4 py-2 text-xs font-bold text-white transition-colors hover:bg-indigo-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2"
                   >
                     <ExternalLink className="h-3.5 w-3.5" />
-                    <span>{copy.openStudioNow}</span>
+                    <span>{jobStatus === "review_needed" ? (locale === "vi" ? "Mở báo cáo để rà soát" : "Open report to review") : copy.openStudioNow}</span>
+                  </button>
+                )}
+
+                {jobStatus === "review_needed" && createdReportId && !autoExportResult && (
+                  <button
+                    type="button"
+                    onClick={() => void exportAutoReportDocx(createdReportId, true)}
+                    disabled={isExportingDocx}
+                    className="flex items-center gap-1.5 rounded-lg border border-amber-300 bg-amber-50 px-4 py-2 text-xs font-bold text-amber-900 transition-colors hover:bg-amber-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {isExportingDocx ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <FileText className="h-3.5 w-3.5" />}
+                    <span>
+                      {autoExportFailed
+                        ? (locale === "vi" ? "Thử xuất Word lại" : "Retry Word export")
+                        : (locale === "vi" ? "Tạo bản Word rà soát" : "Create Word review draft")}
+                    </span>
+                  </button>
+                )}
+
+                {jobStatus === "completed" && createdReportId && autoExportFailed && !autoExportResult && (
+                  <button
+                    type="button"
+                    onClick={() => void exportAutoReportDocx(createdReportId)}
+                    disabled={isExportingDocx}
+                    className="flex items-center gap-1.5 rounded-lg border border-indigo-200 bg-white px-4 py-2 text-xs font-bold text-indigo-700 transition-colors hover:bg-indigo-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {isExportingDocx ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <RotateCcw className="h-3.5 w-3.5" />}
+                    <span>{locale === "vi" ? "Thử xuất Word lại" : "Retry Word export"}</span>
                   </button>
                 )}
 
@@ -2734,17 +2892,23 @@ function UniversalProjectWizardContent() {
                   </button>
                 )}
 
-                {jobStatus === "failed" && (
+                {autoJobUi.canRetry && (
                   <button
+                    type="button"
                     onClick={handleRetryJob}
-                    className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold transition-colors"
+                    disabled={isAutoSubmitting}
+                    className="flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-bold text-white transition-colors hover:bg-indigo-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
                   >
-                    <RotateCcw className="h-3.5 w-3.5" />
-                    <span>{locale === "vi" ? "Chạy lại" : "Retry"}</span>
+                    <RotateCcw className={`h-3.5 w-3.5 ${isAutoSubmitting ? "animate-spin" : ""}`} />
+                    <span>
+                      {isAutoSubmitting
+                        ? (locale === "vi" ? "Đang chạy lại..." : "Retrying...")
+                        : (locale === "vi" ? "Chạy lại" : "Retry")}
+                    </span>
                   </button>
                 )}
 
-                {jobStatus !== "completed" && (
+                {autoJobUi.canCancel && (
                   <button
                     onClick={handleCancelJob}
                     className="flex items-center gap-1.5 px-3 py-1.5 bg-red-50 hover:bg-red-100 text-red-600 rounded-lg text-xs font-bold transition-colors"

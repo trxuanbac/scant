@@ -27,6 +27,28 @@ class GroundedResearchService:
     _STOP_WORDS = {
         "bao", "cao", "phan", "chuong", "muc", "cua", "cho", "the", "and", "with",
         "this", "that", "from", "tren", "trong", "nam", "cac", "nhung", "mot", "viet", "vietnam",
+        "va", "la", "ve", "voi", "tai", "tu", "den", "theo", "khi", "qua", "de", "duoc",
+    }
+    _TOPIC_GENERIC_WORDS = _STOP_WORDS | {
+        "tich", "thi", "truong", "tong", "quan", "hien", "thuc", "trang", "nghien", "cuu",
+        "chien", "luoc", "giai", "phap", "xuat", "danh", "gia", "dong", "khuc", "pho", "thong",
+        "tham", "nhap", "phat", "trien", "mo", "hinh", "ung", "dung", "yeu", "cau", "noi", "dung",
+        "market", "analysis", "strategy", "research", "overview", "report", "solution", "current",
+    }
+    _CONCEPT_COMPONENTS = {
+        "__electric_vehicle__": {
+            "xe", "dien", "o", "to", "ev", "bev", "electric", "vehicle", "vehicles", "car", "cars",
+            "automobile", "automobiles", "automotive", "electrification", "electrified",
+        },
+        "__ecommerce__": {
+            "thuong", "mai", "dien", "tu", "ecommerce", "commerce", "electronic", "online", "retail",
+        },
+        "__digital_transformation__": {
+            "chuyen", "doi", "so", "digital", "transformation",
+        },
+        "__artificial_intelligence__": {
+            "tri", "tue", "nhan", "tao", "artificial", "intelligence", "ai",
+        },
     }
 
     @classmethod
@@ -37,11 +59,69 @@ class GroundedResearchService:
 
     @classmethod
     def _tokens(cls, value: str) -> set[str]:
-        return {
+        tokens = {
             token
             for token in cls._normalize_text(value).split()
             if len(token) >= 3 and token not in cls._STOP_WORDS
         }
+        return tokens | cls._semantic_concepts(value)
+
+    @classmethod
+    def _semantic_concepts(cls, value: str) -> set[str]:
+        """Map common Vietnamese/English topic phrases to stable, specific concepts."""
+        normalized = cls._normalize_text(value)
+        concepts: set[str] = set()
+        electric_vehicle_phrase = re.search(
+            r"\b(?:xe dien|o to dien|electric (?:vehicle|vehicles|car|cars|mobility)|"
+            r"battery electric (?:vehicle|vehicles)|ev|bev)\b",
+            normalized,
+        )
+        vehicle_term = re.search(r"\b(?:xe|o to|vehicle|vehicles|car|cars|automotive)\b", normalized)
+        electrification_term = re.search(r"\b(?:dien hoa|electrification|electrified)\b", normalized)
+        if electric_vehicle_phrase or (vehicle_term and electrification_term):
+            concepts.add("__electric_vehicle__")
+        if re.search(
+            r"\b(?:thuong mai dien tu|e commerce|ecommerce|electronic commerce|online retail)\b",
+            normalized,
+        ):
+            concepts.add("__ecommerce__")
+        if re.search(r"\b(?:chuyen doi so|digital transformation)\b", normalized):
+            concepts.add("__digital_transformation__")
+        if re.search(r"\b(?:tri tue nhan tao|artificial intelligence|ai)\b", normalized):
+            concepts.add("__artificial_intelligence__")
+        return concepts
+
+    @classmethod
+    def _topic_anchor_tokens(cls, value: str) -> set[str]:
+        """Return the distinctive words that every automatically selected source should share."""
+        anchors = {
+            token
+            for token in cls._normalize_text(value).split()
+            if len(token) >= 2 and token not in cls._TOPIC_GENERIC_WORDS and not token.isdigit()
+        }
+        concepts = cls._semantic_concepts(value)
+        for concept in concepts:
+            anchors.difference_update(cls._CONCEPT_COMPONENTS.get(concept, set()))
+        return anchors | concepts
+
+    @staticmethod
+    def _shares_topic_anchor(topic_anchors: set[str], content_anchors: set[str]) -> bool:
+        if not topic_anchors:
+            return True
+        shared = topic_anchors & content_anchors
+        if not shared:
+            return False
+        # A mapped phrase such as xe dien/electric vehicle is already a
+        # distinctive multi-word signal. For raw words, require either a rare
+        # long token or two independent anchors so one ambiguous word such as
+        # "xe" or "dien" cannot admit an unrelated source.
+        if any(token.startswith("__") for token in shared):
+            return True
+        if len(topic_anchors) == 1:
+            return True
+        if any(len(token) >= 7 for token in shared):
+            return True
+        return len(shared) >= 2
 
     @classmethod
     def canonicalize_url(cls, url: str) -> str:
@@ -64,7 +144,10 @@ class GroundedResearchService:
             return 0
         content_tokens = cls._tokens(f"{title} {excerpt}")
         overlap = len(query_tokens & content_tokens)
-        return min(1.0, overlap / max(1, min(len(query_tokens), 6)))
+        score = min(1.0, overlap / max(1, min(len(query_tokens), 6)))
+        if cls._semantic_concepts(query) & cls._semantic_concepts(f"{title} {excerpt}"):
+            score = max(score, 0.5)
+        return score
 
     @staticmethod
     def _freshness(published_at: Any) -> float:
@@ -102,6 +185,11 @@ class GroundedResearchService:
             source_type = str(item.get("source_type") or "website").strip().lower()
             trust_score = source_ranker.calculate_reliability(canonical_url, source_type)
             relevance_score = cls._relevance(query, title, excerpt)
+            # A reputable domain is not evidence for an unrelated topic. Search
+            # providers can return high-authority academic results with no query
+            # overlap, so discard those before they reach the report ledger.
+            if relevance_score < 0.2:
+                continue
             published_at = cls._first_value(item, "published_date", "published_at", "publication_year", "year")
             candidate = SourceCandidate(
                 id=str(item.get("id") or hashlib.sha1(canonical_url.encode("utf-8")).hexdigest()[:20]),
@@ -138,6 +226,13 @@ class GroundedResearchService:
             published_at = getattr(source, "published_date", None) or getattr(source, "publication_year", None)
             excerpt = str(getattr(source, "summary", None) or getattr(source, "content_extracted", None) or "").strip()
             trust = float(getattr(source, "reliability_score", 0) or 0)
+            metadata = getattr(source, "metadata_json", None) or {}
+            research_scores = metadata.get("research_scores") if isinstance(metadata, dict) else {}
+            stored_relevance = research_scores.get("relevance") if isinstance(research_scores, dict) else None
+            try:
+                relevance = float(stored_relevance) if stored_relevance is not None else 0.5
+            except (TypeError, ValueError):
+                relevance = 0.5
             candidates.append(
                 SourceCandidate(
                     id=str(getattr(source, "id")),
@@ -152,7 +247,7 @@ class GroundedResearchService:
                     excerpt=excerpt,
                     retrieval_status="available" if getattr(source, "access_status", "open") != "broken" else "unavailable",
                     trust_score=max(0, min(1, trust)),
-                    relevance_score=0.5,
+                    relevance_score=max(0, min(1, relevance)),
                     freshness_score=cls._freshness(published_at),
                 )
             )
@@ -196,8 +291,10 @@ class GroundedResearchService:
         cls,
         sections: Iterable[Any],
         candidates: List[SourceCandidate],
+        topic: str = "",
     ) -> Dict[str, List[ClaimEvidence]]:
         packets: Dict[str, List[ClaimEvidence]] = {}
+        topic_anchors = cls._topic_anchor_tokens(topic)
         for section in sections:
             section_id = str(getattr(section, "id", "") or "")
             title = str(getattr(section, "title", "") or "")
@@ -205,6 +302,9 @@ class GroundedResearchService:
             matches: List[ClaimEvidence] = []
             for candidate in candidates:
                 content_tokens = cls._tokens(f"{candidate.title} {candidate.excerpt}")
+                anchor_content_tokens = cls._topic_anchor_tokens(f"{candidate.title} {candidate.excerpt}")
+                if not cls._shares_topic_anchor(topic_anchors, anchor_content_tokens):
+                    continue
                 overlap = title_tokens & content_tokens
                 if title_tokens and not overlap:
                     continue

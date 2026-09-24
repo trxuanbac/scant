@@ -3,6 +3,7 @@ export type WorkspaceRouteKey =
   | "new"
   | "projects"
   | "data"
+  | "routes"
   | "research"
   | "templates"
   | "settings"
@@ -18,6 +19,7 @@ const CORE_WORKSPACE_NAVIGATION: readonly WorkspaceRoute[] = [
   { key: "new", href: "/projects/new" },
   { key: "projects", href: "/projects" },
   { key: "data", href: "/data" },
+  { key: "routes", href: "/routes" },
   { key: "research", href: "/research" },
   { key: "templates", href: "/templates" },
   { key: "settings", href: "/settings" },

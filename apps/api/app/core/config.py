@@ -1,7 +1,7 @@
 import os
 from pathlib import Path
 from typing import Any, List
-from pydantic import field_validator
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 DEFAULT_JWT_SECRET = "dev-only-change_me_jwt_secret_min_32_chars"
@@ -27,7 +27,7 @@ class Settings(BaseSettings):
         return value
     
     # Security
-    JWT_SECRET: str = DEFAULT_JWT_SECRET
+    JWT_SECRET: str = Field(default=DEFAULT_JWT_SECRET, repr=False)
     JWT_ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7  # 7 days
     
@@ -53,27 +53,30 @@ class Settings(BaseSettings):
     ]
 
     # Database (Default: Async SQLite for local dev, PostgreSQL for production)
-    DATABASE_URL: str = f"sqlite+aiosqlite:///{Path(__file__).resolve().parent.parent.parent.parent / 'storage' / 'ai_report_studio.db'}"
+    DATABASE_URL: str = Field(default=f"sqlite+aiosqlite:///{Path(__file__).resolve().parent.parent.parent.parent / 'storage' / 'ai_report_studio.db'}", repr=False)
     AUTO_MIGRATE_DATABASE: bool = True
     
     # AI Providers Configuration
-    GEMINI_API_KEY: str = ""
-    OPENAI_API_KEY: str = ""
-    ANTHROPIC_API_KEY: str = ""
+    GEMINI_API_KEY: str = Field(default="", repr=False)
+    OPENAI_API_KEY: str = Field(default="", repr=False)
+    ANTHROPIC_API_KEY: str = Field(default="", repr=False)
     DEFAULT_AI_PROVIDER: str = "gemini"  # gemini, openai, anthropic, ollama
     DEFAULT_AI_MODEL: str = "gemini-2.5-flash"
     AI_RUNTIME_MODE: str = "auto"  # auto, offline_demo, production
     
     # Search Providers Configuration
     SEARCH_PROVIDER: str = "tavily"  # tavily, brave, serpapi, duckduckgo
-    TAVILY_API_KEY: str = ""
-    BRAVE_SEARCH_API_KEY: str = ""
-    SERPAPI_API_KEY: str = ""
+    TAVILY_API_KEY: str = Field(default="", repr=False)
+    BRAVE_SEARCH_API_KEY: str = Field(default="", repr=False)
+    SERPAPI_API_KEY: str = Field(default="", repr=False)
 
     # Google OAuth Configuration
     GOOGLE_CLIENT_ID: str = ""
-    GOOGLE_CLIENT_SECRET: str = ""
+    GOOGLE_CLIENT_SECRET: str = Field(default="", repr=False)
     GOOGLE_REDIRECT_URI: str = "http://localhost:3050/api/auth/callback/google"
+    GOOGLE_MAPS_ROUTES_API_KEY: str = Field(default="", repr=False)
+    ROUTE_LOOKER_REPORT_ID: str = ""
+    ROUTE_LOOKER_SOURCE_URL: str = Field(default="", repr=False)
 
     model_config = SettingsConfigDict(
         env_file=".env",

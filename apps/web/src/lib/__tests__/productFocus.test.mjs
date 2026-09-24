@@ -8,7 +8,7 @@ import {
   getWorkspaceNavigation,
 } from "../productFocus.ts";
 
-test("focused workspace navigation keeps seven core destinations for regular users", () => {
+test("focused workspace navigation includes route measurement for regular users", () => {
   assert.deepEqual(
     getWorkspaceNavigation(false).map(({ key, href }) => ({ key, href })),
     [
@@ -16,6 +16,7 @@ test("focused workspace navigation keeps seven core destinations for regular use
       { key: "new", href: "/projects/new" },
       { key: "projects", href: "/projects" },
       { key: "data", href: "/data" },
+      { key: "routes", href: "/routes" },
       { key: "research", href: "/research" },
       { key: "templates", href: "/templates" },
       { key: "settings", href: "/settings" },

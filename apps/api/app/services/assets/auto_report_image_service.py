@@ -51,6 +51,15 @@ class AutoReportImageService:
         ("process", "process"),
         ("market", "market"),
     )
+    _ENGLISH_QUERY_CONCEPTS = (
+        ("xe dien", "electric vehicle"),
+        ("chuyen doi so", "digital transformation"),
+        ("tri tue nhan tao", "artificial intelligence"),
+        ("nang luong mat troi", "solar energy"),
+        ("dien toan dam may", "cloud computing"),
+        ("thuong mai dien tu", "ecommerce"),
+        ("cong nghe", "technology"),
+    )
 
     @classmethod
     def _normalize(cls, value: str) -> str:
@@ -97,6 +106,25 @@ class AutoReportImageService:
         if clue and clue not in cls._normalize(clean_topic):
             clean_topic = f"{clean_topic} {clue}".strip()
         return clean_topic or str(topic or section_title or "").strip()
+
+    @classmethod
+    def _english_fallback_query(cls, query: str) -> str:
+        normalized = cls._normalize(query)
+        terms: List[str] = []
+        if "viet nam" in normalized:
+            terms.append("Vietnam")
+        terms.extend(
+            translation
+            for phrase, translation in cls._ENGLISH_QUERY_CONCEPTS
+            if phrase in normalized
+        )
+        if "thi truong" in normalized:
+            terms.append("market")
+        if "kien truc" in normalized:
+            terms.append("architecture")
+        if "quy trinh" in normalized:
+            terms.append("process")
+        return " ".join(dict.fromkeys(terms)) if len(terms) >= 2 else ""
 
     @classmethod
     def plan(cls, sections: Iterable[Any], topic: str, max_images: Optional[int] = None) -> List[ImagePlanItem]:
@@ -248,24 +276,29 @@ class AutoReportImageService:
         user_id: Optional[str],
         section: Any,
     ) -> ImageInsertionResult:
-        payload = await image_service.search_web_images(item.query, license_mode="all", max_results=8)
-        results = sorted(
-            [
-                result
-                for result in payload.get("results") or []
-                if cls._candidate_score(item.query, result) > 0
-            ],
-            key=lambda result: cls._candidate_score(item.query, result),
-            reverse=True,
-        )
-        if not results and str(item.purpose).startswith("Tự động"):
-            # The provider already ranks by the full report query. This fallback
-            # is useful for Vietnamese queries whose returned title is English.
-            results = [
-                result
-                for result in (payload.get("results") or [])[:3]
-                if result.get("sourcePageUrl") and result.get("title")
-            ]
+        automatic_request = str(item.purpose).startswith("Tự động")
+        search_queries = [item.query]
+        if automatic_request:
+            english_query = cls._english_fallback_query(item.query)
+            if english_query and cls._normalize(english_query) != cls._normalize(item.query):
+                search_queries.append(english_query)
+
+        payload: Dict[str, Any] = {}
+        results: List[Dict[str, Any]] = []
+        for search_query in search_queries:
+            payload = await image_service.search_web_images(search_query, license_mode="all", max_results=8)
+            results = sorted(
+                [
+                    result
+                    for result in payload.get("results") or []
+                    if cls._candidate_score(search_query, result) > 0
+                    and (not automatic_request or result.get("sourcePageUrl"))
+                ],
+                key=lambda result: cls._candidate_score(search_query, result),
+                reverse=True,
+            )
+            if results:
+                break
         if not results:
             content_json, plain_text = cls._remove_internal_marker(section)
             await section_repo.update(

@@ -35,6 +35,14 @@ bash scripts/dev.sh
 ```
 
 - Web Application: [http://localhost:3050](http://localhost:3050)
+
+#### Đo lộ trình từ Excel
+
+Mục **Đo lộ trình** ở sidebar nhận file `.xlsx` có các cột `Kho đi`, `Lộ trình`, `Link ggmap`, `km 1 chiều DP đo`. API đo **toàn bộ tuyến theo thứ tự**, gồm cả điểm cuối quay về kho, chỉ loại điểm trùng liền kề và đo lại cả dòng đã có km cũ. Bản sao `Lo_trinh_Google_Maps_da_kiem_tra.xlsx` có sheet `Doi chieu lo trinh` và `Tong hop lo trinh`; link/km cũ được giữ trong sheet đối chiếu, còn dòng chưa xác minh không có link/km Google mới. File gốc không bị sửa.
+
+Để đo km, cấu hình `GOOGLE_MAPS_ROUTES_API_KEY` ở môi trường **backend** bằng khóa đã bật Routes API và billing. Bảng nguồn có thể là Google Sheet/CSV công khai hoặc file CSV/XLSX xuất từ Looker; các cột được hỗ trợ là tên HUB + `lat` + `lng`, hoặc `Hub seller` + `Định vị` chứa link ghim tọa độ Google Maps. Tên phải khớp với tên điểm trong lộ trình. Nếu dùng một link Looker Studio cố định, cấu hình thêm `ROUTE_LOOKER_REPORT_ID` (ID giữa `/reporting/` và `/page/`) cùng `ROUTE_LOOKER_SOURCE_URL` (link Google Sheet/CSV gốc). Sau đó người dùng chỉ cần tải Excel và dán link báo cáo Looker. Nếu chưa có mapping này, họ cần xuất biểu đồ “TỈNH ⇒ Tra cứu địa chỉ các HUB” từ Looker thành CSV/XLSX và đính kèm ở màn hình.
+
+Looker Studio API không cung cấp dữ liệu từng chart từ một report URL; không dùng URL trang báo cáo như bảng tọa độ. Google Routes có tính phí theo lượt gọi. Kiểm tra hạn mức trước khi xử lý workbook lớn.
 - API Docs: [http://localhost:8050/docs](http://localhost:8050/docs)
 
 Kiểm tra nhanh sau khi server đã lên:

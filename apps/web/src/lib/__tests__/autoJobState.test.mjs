@@ -6,6 +6,9 @@ import {
   buildAutoJobSnapshot,
   canSafelySwitchAutoContext,
   compactAutoJobMetadata,
+  getAutoExportFailureMessage,
+  getAutoJobNextActionMessage,
+  getAutoJobUiState,
   isAutoJobInFlight,
   shouldRestoreAutoJob,
 } from "../autoJobState.js";
@@ -71,4 +74,51 @@ test("blocks context switches while an auto job is unfinished", () => {
   assert.equal(canSafelySwitchAutoContext("paused"), false);
   assert.equal(canSafelySwitchAutoContext("completed"), true);
   assert.equal(canSafelySwitchAutoContext(""), true);
+});
+
+test("presents review-needed as a finished report with a warning", () => {
+  const state = getAutoJobUiState("review_needed", 1, "vi");
+
+  assert.equal(state.tone, "review");
+  assert.equal(state.terminal, true);
+  assert.equal(state.canCancel, false);
+  assert.equal(state.title, "Báo cáo đã tạo – cần rà soát 1 nội dung");
+});
+
+test("only allows cancellation while an auto job is active", () => {
+  assert.equal(getAutoJobUiState("running", 0, "vi").canCancel, true);
+  assert.equal(getAutoJobUiState("paused", 0, "vi").canCancel, true);
+  assert.equal(getAutoJobUiState("completed", 0, "vi").canCancel, false);
+  assert.equal(getAutoJobUiState("failed", 0, "vi").canCancel, false);
+});
+
+test("treats cancelled jobs as terminal and retryable", () => {
+  const state = getAutoJobUiState("cancelled", 0, "vi");
+
+  assert.equal(state.terminal, true);
+  assert.equal(state.canCancel, false);
+  assert.equal(state.canRetry, true);
+  assert.equal(state.title, "Đã hủy tạo báo cáo");
+});
+
+test("only failed and cancelled jobs can be retried", () => {
+  assert.equal(getAutoJobUiState("failed", 0, "vi").canRetry, true);
+  assert.equal(getAutoJobUiState("cancelled", 0, "vi").canRetry, true);
+  assert.equal(getAutoJobUiState("review_needed", 1, "vi").canRetry, false);
+  assert.equal(getAutoJobUiState("completed", 0, "vi").canRetry, false);
+});
+
+test("describes cancelled-job recovery and export failures", () => {
+  assert.equal(
+    getAutoJobNextActionMessage("retry_or_create_new", "vi"),
+    "Quy trình đã được hủy. Bạn có thể chạy lại hoặc đổi module để tạo báo cáo mới.",
+  );
+  assert.equal(
+    getAutoExportFailureMessage(true, "vi"),
+    "Không thể xuất bản Word hiện tại. Hãy thử lại hoặc mở báo cáo để rà soát.",
+  );
+  assert.equal(
+    getAutoExportFailureMessage(false, "en"),
+    "The report was created, but Word export failed. Try exporting again.",
+  );
 });

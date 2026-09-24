@@ -2,6 +2,10 @@ import os
 import base64
 import pytest
 from httpx import AsyncClient
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.models.entities import ExportRecord
 
 
 @pytest.mark.asyncio
@@ -142,6 +146,72 @@ async def test_preview_html_loads_for_plain_report(client: AsyncClient):
     preview_res = await client.get(f"/api/v1/exports/report/{report_id}/preview-html", headers=headers)
     assert preview_res.status_code == 200
     assert "html_document" in preview_res.json()
+
+
+@pytest.mark.asyncio
+async def test_invalid_final_docx_is_blocked_but_review_draft_is_exported(
+    client: AsyncClient,
+    db_session: AsyncSession,
+):
+    reg_res = await client.post("/api/v1/auth/register", json={
+        "email": "draft_export_user@test.com",
+        "password": "Password123!",
+        "name": "Draft Export User",
+    })
+    token = reg_res.json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    proj_res = await client.post("/api/v1/projects", json={
+        "name": "Nghiên cứu thị trường xe điện Việt Nam",
+        "type": "market_research",
+        "topic_details": {"topic": "Thị trường xe điện Việt Nam"},
+    }, headers=headers)
+    project_id = proj_res.json()["id"]
+
+    report_res = await client.post("/api/v1/reports", json={
+        "project_id": project_id,
+        "title": "Báo cáo thị trường xe điện Việt Nam",
+        "report_type": "market_research",
+        "outline": [
+            {"title": "1. Tổng quan thị trường", "level": 1, "position": 1, "children": []},
+        ],
+    }, headers=headers)
+    report_data = report_res.json()
+    report_id = report_data["id"]
+    section_id = report_data["sections"][0]["id"]
+
+    await client.put(f"/api/v1/reports/sections/{section_id}", json={
+        "plain_text": "ARM và x86 được so sánh theo server throughput trong cloud workload.",
+        "word_count": 11,
+        "status": "draft",
+    }, headers=headers)
+
+    final_res = await client.post("/api/v1/exports/docx", json={
+        "report_id": report_id,
+    }, headers=headers)
+    assert final_res.status_code == 422
+    assert final_res.json()["detail"]["validation"]["valid"] is False
+
+    draft_res = await client.post("/api/v1/exports/docx", json={
+        "report_id": report_id,
+        "review_draft": True,
+    }, headers=headers)
+    assert draft_res.status_code == 200
+    draft_payload = draft_res.json()
+    assert draft_payload["filename"].startswith("BAN_NHAP_")
+    assert draft_payload["download_url"].rsplit("/", 1)[-1].startswith("BAN_NHAP_")
+
+    record = await db_session.scalar(
+        select(ExportRecord)
+        .where(ExportRecord.report_id == report_id)
+        .order_by(ExportRecord.created_at.desc())
+    )
+    assert record is not None
+    assert record.settings_json["review_draft"] is True
+    assert record.settings_json["document_label"] == "BAN_NHAP"
+    assert record.settings_json["document_status"] == "review_draft"
+    assert record.settings_json["review_required"] is True
+    assert record.settings_json["validation"]["valid"] is False
 
 
 @pytest.mark.asyncio

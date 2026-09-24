@@ -1,4 +1,5 @@
 import os
+import re
 from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import FileResponse
@@ -20,6 +21,18 @@ from app.api.v1.templates import _docx_to_preview_html
 
 router = APIRouter(prefix="/exports", tags=["exports"])
 export_repo = BaseRepository[ExportRecord](ExportRecord)
+
+
+def _mark_docx_as_review_draft(file_path: str, report_title: str) -> str:
+    generated_path = Path(file_path)
+    safe_title = re.sub(r"[^\w.-]+", "_", report_title, flags=re.UNICODE).strip("._")
+    safe_title = safe_title[:80] or "bao_cao"
+    unique_suffix = generated_path.stem.removeprefix("report_")
+    draft_path = generated_path.with_name(
+        f"BAN_NHAP_{safe_title}_{unique_suffix}{generated_path.suffix}"
+    )
+    generated_path.replace(draft_path)
+    return str(draft_path)
 
 
 async def _load_image_assets_for_export(db: AsyncSession, project_id: str, report_id: str):
@@ -74,7 +87,7 @@ async def export_docx(
         if value
     )
     final_validation = grounding_guard.validate_docx(file_path, topic_text=topic_context)
-    if not final_validation.get("valid"):
+    if not final_validation.get("valid") and not req.review_draft:
         raise HTTPException(
             status_code=422,
             detail={
@@ -83,15 +96,28 @@ async def export_docx(
             },
         )
 
+    if req.review_draft:
+        file_path = _mark_docx_as_review_draft(file_path, report.title)
+
     filename = Path(file_path).name
     file_size = os.path.getsize(file_path)
+
+    document_status = "review_draft" if req.review_draft else "final"
+    document_label = "BAN_NHAP" if req.review_draft else "FINAL"
 
     record = await export_repo.create(db, obj_in={
         "report_id": report.id,
         "export_format": "docx",
         "file_path": file_path,
         "file_size": file_size,
-        "settings_json": {**req.model_dump(), "final_validation": final_validation},
+        "settings_json": {
+            **req.model_dump(),
+            "document_label": document_label,
+            "document_status": document_status,
+            "review_required": not final_validation.get("valid", False),
+            "validation": final_validation,
+            "final_validation": final_validation,
+        },
         "status": "completed",
     })
 
@@ -100,7 +126,7 @@ async def export_docx(
         report_id=report.id,
         export_format="docx",
         download_url=f"/api/v1/exports/download/{filename}",
-        filename=f"{report.title.replace(' ', '_')}.docx",
+        filename=(filename if req.review_draft else f"{report.title.replace(' ', '_')}.docx"),
         file_size=file_size,
         created_at=record.created_at,
     )

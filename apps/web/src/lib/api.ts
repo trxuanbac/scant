@@ -166,6 +166,36 @@ export const api = {
     chartSpec: (data: any) => request<any>("/data/chart-spec", { method: "POST", body: JSON.stringify(data) }),
   },
 
+  routes: {
+    status: () => request<{ maps_configured: boolean; supported_looker_report_id: string; accepted_sources: string[] }>("/data/route-enrichment/status"),
+    export: async (formData: FormData): Promise<{
+      blob: Blob; total: number; completed: number; missingWaypoint: number; mapsFailed: number;
+      roundTrips: number; largeDifference: number; missingLinks: number; validationFailed: number;
+    }> => {
+      const token = typeof window !== "undefined" ? localStorage.getItem("auth_token") : null;
+      const response = await fetch(`${API_BASE}/data/route-enrichment/export`, {
+        method: "POST",
+        body: formData,
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new ApiError(formatApiErrorMessage(data), response.status, data);
+      }
+      return {
+        blob: await response.blob(),
+        total: Number(response.headers.get("x-routes-total") || 0),
+        completed: Number(response.headers.get("x-routes-completed") || 0),
+        missingWaypoint: Number(response.headers.get("x-routes-missing-waypoint") || 0),
+        mapsFailed: Number(response.headers.get("x-routes-maps-failed") || 0),
+        roundTrips: Number(response.headers.get("x-routes-round-trips") || 0),
+        largeDifference: Number(response.headers.get("x-routes-large-difference") || 0),
+        missingLinks: Number(response.headers.get("x-routes-missing-links") || 0),
+        validationFailed: Number(response.headers.get("x-routes-validation-failed") || 0),
+      };
+    },
+  },
+
   // Reports & One-Click Auto Create
   reports: {
     list: () => request<any[]>("/reports"),

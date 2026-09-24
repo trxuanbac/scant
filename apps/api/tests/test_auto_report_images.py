@@ -71,6 +71,12 @@ def test_automatic_image_plan_removes_report_boilerplate_from_search_query():
     assert plan[0].query == "chuyển đổi số tại Việt Nam"
 
 
+def test_image_search_builds_an_english_fallback_for_vietnamese_topics():
+    assert auto_report_image_service._english_fallback_query(
+        "Phân tích thị trường xe điện Việt Nam"
+    ) == "Vietnam electric vehicle market"
+
+
 def test_image_candidate_relevance_rejects_unrelated_title():
     assert auto_report_image_service._candidate_score(
         "kiến trúc điện toán đám mây",
@@ -113,6 +119,214 @@ async def test_unrelated_search_results_are_not_imported(monkeypatch):
 
     assert result.status == "skipped"
     assert imported == []
+
+
+@pytest.mark.asyncio
+async def test_automatic_image_search_retries_with_translated_query(monkeypatch, tmp_path):
+    section = SimpleNamespace(
+        id="section-1",
+        title="Tổng quan thị trường",
+        plain_text="Nội dung.",
+        content_json={"type": "doc", "content": [paragraph("Nội dung.")]},
+    )
+    queries = []
+    imported = []
+    local_image = tmp_path / "ev.jpg"
+    local_image.write_bytes(b"local image fixture")
+
+    async def fake_search(query, license_mode="all", max_results=12):
+        queries.append(query)
+        if query == "Vietnam electric vehicle market":
+            return {
+                "provider": "openverse",
+                "results": [{
+                    "id": "ev",
+                    "title": "Vietnam electric vehicle",
+                    "imageUrl": "https://example.org/ev.jpg",
+                    "thumbnailUrl": "https://example.org/ev-thumb.jpg",
+                    "sourcePageUrl": "https://example.org/ev",
+                }],
+            }
+        return {
+            "provider": "openverse",
+            "results": [{
+                "id": "weak-vietnamese-result",
+                "title": "Việt Nam",
+                "imageUrl": "https://example.org/vietnam.jpg",
+                "thumbnailUrl": "https://example.org/vietnam-thumb.jpg",
+                "sourcePageUrl": "https://example.org/vietnam",
+            }],
+        }
+
+    async def fake_import(_db, **kwargs):
+        imported.append(kwargs["result"]["id"])
+        return SimpleNamespace(
+            id="asset-ev",
+            width=1000,
+            storage_path=str(local_image),
+            source_domain="example.org",
+            source_page_url="https://example.org/ev",
+            license="CC BY",
+            attribution="Example",
+        )
+
+    async def fake_update(_db, db_obj, obj_in):
+        return db_obj
+
+    monkeypatch.setattr("app.services.assets.auto_report_image_service.image_service.search_web_images", fake_search)
+    monkeypatch.setattr("app.services.assets.auto_report_image_service.image_service.import_search_result", fake_import)
+    monkeypatch.setattr("app.services.assets.auto_report_image_service.section_repo.update", fake_update)
+
+    result = await auto_report_image_service.import_and_insert(
+        object(),
+        ImagePlanItem(
+            id="plan-ev",
+            section_id="section-1",
+            query="Phân tích thị trường xe điện Việt Nam",
+            purpose="Tự động minh họa nội dung mục Tổng quan thị trường",
+            caption="Thị trường xe điện",
+            alt_text="Thị trường xe điện Việt Nam",
+        ),
+        project_id="project-1",
+        report_id="report-1",
+        user_id="user-1",
+        section=section,
+    )
+
+    assert queries == ["Phân tích thị trường xe điện Việt Nam", "Vietnam electric vehicle market"]
+    assert imported == ["ev"]
+    assert result.status == "inserted"
+
+
+@pytest.mark.asyncio
+async def test_image_without_source_page_is_not_imported(monkeypatch):
+    section = SimpleNamespace(
+        id="section-1",
+        title="Thị trường xe điện",
+        plain_text="Nội dung.",
+        content_json={"type": "doc", "content": [paragraph("Nội dung.")]},
+    )
+    imported = []
+
+    async def fake_search(_query, license_mode="all", max_results=12):
+        return {
+            "provider": "openverse",
+            "results": [{
+                "id": "no-provenance",
+                "title": "Electric vehicle market",
+                "imageUrl": "https://cdn.example.org/ev.jpg",
+                "thumbnailUrl": "https://cdn.example.org/ev-thumb.jpg",
+                "sourcePageUrl": None,
+            }],
+        }
+
+    async def fake_import(_db, **kwargs):
+        imported.append(kwargs["result"]["id"])
+        return SimpleNamespace(id="asset-without-provenance")
+
+    async def fake_update(_db, db_obj, obj_in):
+        return db_obj
+
+    monkeypatch.setattr("app.services.assets.auto_report_image_service.image_service.search_web_images", fake_search)
+    monkeypatch.setattr("app.services.assets.auto_report_image_service.image_service.import_search_result", fake_import)
+    monkeypatch.setattr("app.services.assets.auto_report_image_service.section_repo.update", fake_update)
+
+    result = await auto_report_image_service.import_and_insert(
+        object(),
+        ImagePlanItem(
+            id="plan-no-provenance",
+            section_id="section-1",
+            query="electric vehicle market",
+            purpose="Minh họa thị trường",
+            caption="Thị trường xe điện",
+            alt_text="Thị trường xe điện",
+        ),
+        project_id="project-1",
+        report_id="report-1",
+        user_id="user-1",
+        section=section,
+    )
+
+    assert result.status == "skipped"
+    assert imported == []
+
+
+@pytest.mark.asyncio
+async def test_image_import_skips_asset_without_existing_local_file(monkeypatch, tmp_path):
+    section = SimpleNamespace(
+        id="section-1",
+        title="Thị trường xe điện",
+        plain_text="Nội dung.",
+        content_json={"type": "doc", "content": [paragraph("Nội dung.")]},
+    )
+    local_image = tmp_path / "downloaded-ev.jpg"
+    local_image.write_bytes(b"local image fixture")
+    attempts = []
+
+    async def fake_search(_query, license_mode="all", max_results=12):
+        return {
+            "provider": "openverse",
+            "results": [
+                {
+                    "id": "stale",
+                    "title": "Electric vehicle market",
+                    "imageUrl": "https://cdn.example.org/stale.jpg",
+                    "thumbnailUrl": "https://cdn.example.org/stale-thumb.jpg",
+                    "sourcePageUrl": "https://source.example.org/stale",
+                },
+                {
+                    "id": "local",
+                    "title": "Electric vehicle market",
+                    "imageUrl": "https://cdn.example.org/local.jpg",
+                    "thumbnailUrl": "https://cdn.example.org/local-thumb.jpg",
+                    "sourcePageUrl": "https://source.example.org/local",
+                },
+            ],
+        }
+
+    async def fake_import(_db, **kwargs):
+        result = kwargs["result"]
+        attempts.append(result["id"])
+        return SimpleNamespace(
+            id=f"asset-{result['id']}",
+            width=1000,
+            storage_path=(
+                str(tmp_path / "missing.jpg")
+                if result["id"] == "stale"
+                else str(local_image)
+            ),
+            source_domain="source.example.org",
+            source_page_url=result["sourcePageUrl"],
+            license="CC BY",
+            attribution="Example",
+        )
+
+    async def fake_update(_db, db_obj, obj_in):
+        return db_obj
+
+    monkeypatch.setattr("app.services.assets.auto_report_image_service.image_service.search_web_images", fake_search)
+    monkeypatch.setattr("app.services.assets.auto_report_image_service.image_service.import_search_result", fake_import)
+    monkeypatch.setattr("app.services.assets.auto_report_image_service.section_repo.update", fake_update)
+
+    result = await auto_report_image_service.import_and_insert(
+        object(),
+        ImagePlanItem(
+            id="plan-local",
+            section_id="section-1",
+            query="electric vehicle market",
+            purpose="Minh họa thị trường",
+            caption="Thị trường xe điện",
+            alt_text="Thị trường xe điện",
+        ),
+        project_id="project-1",
+        report_id="report-1",
+        user_id="user-1",
+        section=section,
+    )
+
+    assert attempts == ["stale", "local"]
+    assert result.status == "inserted"
+    assert result.asset.id == "asset-local"
 
 
 @pytest.mark.asyncio

@@ -647,7 +647,11 @@ NGỮ CẢNH DỮ LIỆU ĐÃ KIỂM ĐỊNH BẰNG PYTHON:
                     sources.append(src)
 
             candidates = grounded_research_service.from_persisted_sources(sources)
-            evidence_packets = grounded_research_service.build_evidence_packets(sections, candidates)
+            evidence_packets = grounded_research_service.build_evidence_packets(
+                sections,
+                candidates,
+                topic=project.name,
+            )
             await update_stage(
                 "research",
                 55,
@@ -978,23 +982,33 @@ NGỮ CẢNH DỮ LIỆU ĐÃ KIỂM ĐỊNH BẰNG PYTHON:
                 template_profile=template_profile,
             )
             integrity_payload = integrity_result.model_dump(mode="json")
+            grounding_errors = grounding_gate.get("errors") or []
+            review_issue_count = len(integrity_result.blocking_errors) + len(grounding_errors)
+            needs_review = not grounding_gate.get("final", True) or not integrity_result.ready
+            if needs_review and review_issue_count == 0:
+                # A provider may return only a failed final flag. Keep the
+                # message truthful and actionable instead of reporting zero.
+                review_issue_count = 1
             await update_stage(
                 "run_quality_check",
                 98,
                 (
                     "Đã kiểm tra nguồn, trích dẫn, tài liệu tham khảo và xuất xứ ảnh."
-                    if integrity_result.ready
-                    else f"Phát hiện {len(integrity_result.blocking_errors)} vấn đề cần rà soát trước khi xuất bản."
+                    if not needs_review
+                    else f"Phát hiện {review_issue_count} vấn đề cần rà soát trước khi xuất bản."
                 ),
                 {"integrity_result": integrity_payload},
                 completed_checkpoints=["integrity"],
             )
 
-            final_status = "completed" if grounding_gate.get("final", True) and integrity_result.ready else "review_needed"
+            final_status = "review_needed" if needs_review else "completed"
             final_message = (
                 f"Báo cáo hoàn chỉnh sẵn sàng. Điểm chất lượng: {quality['overall_score']}/100."
                 if final_status == "completed"
-                else "Báo cáo đã tạo nhưng cần rà soát vấn đề về nội dung, nguồn trích dẫn hoặc xuất xứ ảnh."
+                else (
+                    "Báo cáo đã tạo và cần rà soát "
+                    f"{review_issue_count} nội dung trước khi xuất bản."
+                )
             )
             await update_stage(
                 final_status,
